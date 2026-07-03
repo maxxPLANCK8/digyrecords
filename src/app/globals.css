@@ -1,26 +1,89 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --kraft-paper: #ede6d3;
+  --ledger-ink: #14202b;
+  --manifest-amber: #d98e2b;
+  --stamp-red: #a63a2c;
+  --manifest-green: #3f6b4e;
+  --perforation-grey: #c7bca0;
+  --paper-light: #f8f2e3;
+  --background: var(--kraft-paper);
+  --foreground: var(--ledger-ink);
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --color-kraft-paper: var(--kraft-paper);
+  --color-ledger-ink: var(--ledger-ink);
+  --color-manifest-amber: var(--manifest-amber);
+  --color-stamp-red: var(--stamp-red);
+  --color-manifest-green: var(--manifest-green);
+  --color-perforation-grey: var(--perforation-grey);
+  --color-paper-light: var(--paper-light);
+  --font-sans: var(--font-ibm-plex-sans);
+  --font-mono: var(--font-ibm-plex-mono);
+  --font-display: var(--font-big-shoulders);
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-ibm-plex-sans), Arial, Helvetica, sans-serif;
+}
+
+button,
+a,
+input {
+  outline-color: var(--manifest-amber);
+}
+
+.scan-viewfinder #parcel-scanner-reader,
+.scan-viewfinder #parcel-scanner-reader video {
+  min-height: 100%;
+  width: 100% !important;
+  object-fit: cover;
+}
+
+.scan-viewfinder #parcel-scanner-reader {
+  background: #0b0d0f;
+}
+
+.scan-viewfinder__corner {
+  position: absolute;
+  width: 44px;
+  height: 44px;
+  border-color: var(--manifest-amber);
+  opacity: 0.95;
+}
+
+.stamp-mark {
+  color: var(--manifest-green);
+  border: 4px solid currentColor;
+  filter: url("#stamp-bleed");
+  transform: rotate(-8deg) scale(1);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .stamp-mark {
+    animation: stamp-down 180ms ease-out;
+  }
+}
+
+@keyframes stamp-down {
+  from {
+    opacity: 0;
+    transform: rotate(-8deg) scale(1.28);
+  }
+
+  70% {
+    opacity: 1;
+    transform: rotate(-8deg) scale(0.94);
+  }
+
+  to {
+    opacity: 1;
+    transform: rotate(-8deg) scale(1);
+  }
 }

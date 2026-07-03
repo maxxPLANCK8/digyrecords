@@ -3,6 +3,7 @@ import { logout } from "@/app/auth/actions";
 import { createClient } from "@/lib/supabase/server";
 
 type Membership = {
+  display_name?: string | null;
   orgs?: { name?: string } | { name?: string }[] | null;
 };
 
@@ -34,88 +35,145 @@ export default async function DashboardPage() {
     .select(
       "tracking_number, recipient_name, recipient_phone, scanned_at, org_id",
     )
-    .order("tracking_number", { ascending: true });
+    .order("scanned_at", { ascending: false });
+
+  const typedMemberships = memberships as Membership[] | null;
+  const orgNames =
+    typedMemberships?.map(orgNameFor).filter(Boolean).join(", ") ||
+    "No org linked";
+  const displayName = typedMemberships?.[0]?.display_name || user.email;
+  const todayDate = new Date().toLocaleDateString();
+  const todayPickupCount =
+    pickups?.filter(
+      (pickup) => new Date(pickup.scanned_at).toLocaleDateString() === todayDate,
+    ).length ?? 0;
 
   return (
-    <main className="min-h-screen bg-stone-50 px-6 py-8 text-zinc-950">
+    <main className="min-h-screen bg-kraft-paper px-5 py-6 text-ledger-ink sm:px-8">
       <section className="mx-auto max-w-6xl">
-        <header className="flex flex-col gap-4 border-b border-zinc-200 pb-6 sm:flex-row sm:items-center sm:justify-between">
+        <header className="flex flex-col gap-4 border-b border-perforation-grey pb-5 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <p className="text-sm font-semibold text-emerald-700">ParcelLog</p>
-            <h1 className="mt-2 text-3xl font-semibold tracking-tight">
-              Dashboard
+            <p className="font-mono text-xs font-medium uppercase text-manifest-green">
+              ParcelLog
+            </p>
+            <h1 className="mt-1 font-display text-4xl font-extrabold uppercase leading-none text-ledger-ink sm:text-5xl">
+              {orgNames}
             </h1>
-            <p className="mt-2 text-sm text-zinc-600">{user.email}</p>
           </div>
-          <form action={logout}>
-            <button className="rounded-md border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-800 transition hover:border-emerald-600">
-              Log out
-            </button>
-          </form>
+          <div className="flex flex-wrap items-center gap-3 text-sm">
+            <span className="text-ledger-ink/75">{displayName}</span>
+            <span className="text-perforation-grey">/</span>
+            <a
+              className="rounded-[6px] border border-ledger-ink px-3 py-2 font-semibold text-ledger-ink transition hover:bg-ledger-ink hover:text-kraft-paper focus-visible:outline-2 focus-visible:outline-offset-2"
+              href="/scan"
+            >
+              Scan
+            </a>
+            <form action={logout}>
+              <button className="rounded-[6px] border border-ledger-ink px-3 py-2 font-semibold text-ledger-ink transition hover:bg-ledger-ink hover:text-kraft-paper focus-visible:outline-2 focus-visible:outline-offset-2">
+                Log out
+              </button>
+            </form>
+          </div>
         </header>
 
-        <div className="mt-6 grid gap-4 sm:grid-cols-3">
-          <div className="rounded-lg border border-zinc-200 bg-white p-4">
-            <p className="text-sm text-zinc-600">Visible pickups</p>
-            <p className="mt-2 text-3xl font-semibold">{pickups?.length ?? 0}</p>
-          </div>
-          <div className="rounded-lg border border-zinc-200 bg-white p-4 sm:col-span-2">
-            <p className="text-sm text-zinc-600">Org membership</p>
-            <p className="mt-2 text-lg font-medium">
-              {(memberships as Membership[] | null)
-                ?.map(orgNameFor)
-                .filter(Boolean)
-                .join(", ") || "No org linked"}
+        <div className="mt-8 flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
+          <div className="-rotate-1 border-2 border-manifest-green bg-paper-light px-6 py-5 text-manifest-green shadow-[6px_6px_0_rgba(63,107,78,0.16)]">
+            <p className="font-display text-2xl font-extrabold uppercase leading-none">
+              Today
             </p>
+            <p className="mt-2 font-display text-6xl font-extrabold leading-none">
+              {todayPickupCount}
+            </p>
+            <p className="mt-1 text-sm font-semibold">pickups</p>
+          </div>
+          <div className="max-w-xl border-t border-dashed border-perforation-grey pt-4 text-sm text-ledger-ink/70 sm:text-right">
+            <p>
+              {pickups?.length ?? 0} visible record
+              {(pickups?.length ?? 0) === 1 ? "" : "s"}
+            </p>
+            <p className="mt-1 font-mono text-xs">{user.email}</p>
           </div>
         </div>
 
         {error ? (
-          <p className="mt-6 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+          <p className="mt-6 border border-stamp-red bg-paper-light p-3 text-sm text-stamp-red">
             {error.message}
           </p>
         ) : null}
 
-        <div className="mt-6 overflow-hidden rounded-lg border border-zinc-200 bg-white">
-          <table className="w-full border-collapse text-left text-sm">
-            <thead className="bg-zinc-100 text-zinc-700">
-              <tr>
-                <th className="px-4 py-3 font-medium">Tracking #</th>
-                <th className="px-4 py-3 font-medium">Recipient</th>
-                <th className="px-4 py-3 font-medium">Phone</th>
-                <th className="px-4 py-3 font-medium">Scanned at</th>
-                <th className="px-4 py-3 font-medium">Org ID</th>
+        <div className="mt-8 overflow-x-auto border-y border-perforation-grey">
+          <table className="w-full min-w-[760px] border-collapse text-left text-sm">
+            <thead>
+              <tr className="border-b border-ledger-ink">
+                <th className="py-3 pr-5 font-mono text-xs font-medium uppercase text-ledger-ink/70">
+                  Tracking #
+                </th>
+                <th className="px-5 py-3 font-mono text-xs font-medium uppercase text-ledger-ink/70">
+                  Recipient
+                </th>
+                <th className="px-5 py-3 font-mono text-xs font-medium uppercase text-ledger-ink/70">
+                  Phone
+                </th>
+                <th className="px-5 py-3 font-mono text-xs font-medium uppercase text-ledger-ink/70">
+                  Scanned at
+                </th>
+                <th className="py-3 pl-5 font-mono text-xs font-medium uppercase text-ledger-ink/70">
+                  Status
+                </th>
               </tr>
             </thead>
             <tbody>
               {pickups?.map((pickup) => (
                 <tr
-                  className="border-t border-zinc-100"
+                  className="border-t border-dashed border-perforation-grey"
                   key={`${pickup.org_id}-${pickup.tracking_number}`}
                 >
-                  <td className="px-4 py-3 font-medium">
+                  <td className="py-4 pr-5 font-mono font-medium text-ledger-ink">
                     {pickup.tracking_number}
                   </td>
-                  <td className="px-4 py-3">{pickup.recipient_name}</td>
-                  <td className="px-4 py-3">{pickup.recipient_phone}</td>
-                  <td className="px-4 py-3">
-                    {new Date(pickup.scanned_at).toLocaleString()}
+                  <td className="px-5 py-4">
+                    {pickup.recipient_name || "Unverified"}
                   </td>
-                  <td className="px-4 py-3 font-mono text-xs text-zinc-600">
-                    {pickup.org_id}
+                  <td className="px-5 py-4 font-mono">
+                    {pickup.recipient_phone || "-"}
+                  </td>
+                  <td className="px-5 py-4 font-mono text-ledger-ink/75">
+                    {new Date(pickup.scanned_at).toLocaleString(undefined, {
+                      month: "numeric",
+                      day: "numeric",
+                      hour: "numeric",
+                      minute: "2-digit",
+                    })}
+                  </td>
+                  <td className="py-4 pl-5">
+                    <span className="font-display text-xl font-extrabold uppercase text-manifest-green">
+                      Received
+                    </span>
                   </td>
                 </tr>
               ))}
               {!pickups?.length ? (
                 <tr>
-                  <td className="px-4 py-6 text-zinc-600" colSpan={5}>
-                    No pickups visible for this logged-in user.
+                  <td className="py-8 text-ledger-ink/70" colSpan={5}>
+                    No pickups logged yet today.
                   </td>
                 </tr>
               ) : null}
             </tbody>
           </table>
         </div>
+
+        <section className="mt-8 border-t border-dashed border-perforation-grey pt-4">
+          <div>
+            <p className="font-mono text-xs font-medium uppercase text-ledger-ink/70">
+              Org membership
+            </p>
+            <p className="mt-1 text-lg font-semibold text-ledger-ink">
+              {orgNames}
+            </p>
+          </div>
+        </section>
       </section>
     </main>
   );

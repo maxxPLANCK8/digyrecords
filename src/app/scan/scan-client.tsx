@@ -181,6 +181,8 @@ export function ScanClient({
   const [ocrPhonePendingVerify, setOcrPhonePendingVerify] = useState(false);
   const [duplicateWarning, setDuplicateWarning] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+  const [receivedStamp, setReceivedStamp] = useState(false);
+  const stampTimeoutRef = useRef<number | null>(null);
 
   const runOcr = useCallback(
     async (sourceCanvas: HTMLCanvasElement | null) => {
@@ -371,6 +373,9 @@ export function ScanClient({
 
     return () => {
       window.clearTimeout(timeoutId);
+      if (stampTimeoutRef.current) {
+        window.clearTimeout(stampTimeoutRef.current);
+      }
       void stopScanner();
     };
   }, [startScanner, stopScanner]);
@@ -426,6 +431,13 @@ export function ScanClient({
     }
 
     setMessage("Saved. Ready for the next parcel.");
+    setReceivedStamp(true);
+    if (stampTimeoutRef.current) {
+      window.clearTimeout(stampTimeoutRef.current);
+    }
+    stampTimeoutRef.current = window.setTimeout(() => {
+      setReceivedStamp(false);
+    }, 900);
     setTrackingNumber("");
     setRawPayload("");
     setRecipientName("");
@@ -448,6 +460,7 @@ export function ScanClient({
 
   function scanNext() {
     setMessage("Ready for the next parcel.");
+    setReceivedStamp(false);
     setTrackingNumber("");
     setRawPayload("");
     setRecipientName("");
@@ -470,34 +483,66 @@ export function ScanClient({
   }
 
   return (
-    <main className="min-h-screen bg-zinc-950 text-white">
+    <main className="min-h-screen bg-kraft-paper text-ledger-ink">
+      <svg aria-hidden="true" className="absolute h-0 w-0">
+        <filter id="stamp-bleed">
+          <feTurbulence
+            baseFrequency="0.9"
+            numOctaves="2"
+            result="noise"
+            seed="7"
+            type="fractalNoise"
+          />
+          <feDisplacementMap
+            in="SourceGraphic"
+            in2="noise"
+            scale="0.7"
+            xChannelSelector="R"
+            yChannelSelector="G"
+          />
+        </filter>
+      </svg>
       <section className="mx-auto flex min-h-screen w-full max-w-3xl flex-col px-4 py-4">
-        <header className="flex items-center justify-between gap-3 pb-4">
-          <div>
-            <Link className="text-sm font-semibold text-emerald-300" href="/">
-              ParcelLog
+        <header className="border-b border-perforation-grey pb-4">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <Link
+                className="font-mono text-xs font-medium uppercase text-manifest-green underline-offset-4 focus-visible:outline-2"
+                href="/"
+              >
+                ParcelLog
+              </Link>
+              <h1 className="mt-1 font-display text-3xl font-extrabold uppercase leading-none text-ledger-ink">
+                {orgName}
+              </h1>
+              <p className="mt-1 text-sm text-ledger-ink/70">
+                {displayName || userEmail}
+              </p>
+            </div>
+            <Link
+              className="rounded-[6px] border border-ledger-ink px-3 py-2 text-sm font-semibold text-ledger-ink transition hover:bg-ledger-ink hover:text-kraft-paper focus-visible:outline-2 focus-visible:outline-offset-2"
+              href="/dashboard"
+            >
+              Dashboard
             </Link>
-            <h1 className="mt-1 text-2xl font-semibold tracking-tight">
-              Scan pickup
-            </h1>
-            <p className="mt-1 text-xs leading-5 text-zinc-400">
-              {orgName} - {displayName || userEmail}
-            </p>
           </div>
-          <Link
-            className="rounded-md border border-zinc-700 px-3 py-2 text-sm text-zinc-200"
-            href="/dashboard"
-          >
-            Dashboard
-          </Link>
         </header>
 
-        <div className="overflow-hidden rounded-lg border border-zinc-800 bg-black">
-          <div className="aspect-[4/3] w-full" id={readerId} />
+        <div className="scan-viewfinder relative mt-4 overflow-hidden border-2 border-ledger-ink bg-ledger-ink shadow-[0_8px_0_rgba(20,32,43,0.18)]">
+          <div className="aspect-[3/4] w-full" id={readerId} />
+          <span className="scan-viewfinder__corner left-4 top-4 border-l-4 border-t-4" />
+          <span className="scan-viewfinder__corner right-4 top-4 border-r-4 border-t-4" />
+          <span className="scan-viewfinder__corner bottom-4 left-4 border-b-4 border-l-4" />
+          <span className="scan-viewfinder__corner bottom-4 right-4 border-b-4 border-r-4" />
+          <div className="pointer-events-none absolute inset-x-5 top-1/2 border-t border-dashed border-manifest-amber/80" />
         </div>
 
         <div className="mt-3 flex items-center justify-between gap-3 text-sm">
-          <span className="text-zinc-300">
+          <span
+            className={`font-mono uppercase ${
+              status === "error" ? "text-stamp-red" : "text-ledger-ink/75"
+            }`}
+          >
             {status === "scanning"
               ? "Camera active"
               : status === "starting"
@@ -509,35 +554,41 @@ export function ScanClient({
                     : "Idle"}
           </span>
           <button
-            className="rounded-md bg-white px-3 py-2 font-medium text-zinc-950 disabled:opacity-50"
+            className="rounded-[6px] border border-ledger-ink bg-paper-light px-3 py-2 font-semibold text-ledger-ink transition hover:bg-manifest-amber focus-visible:outline-2 focus-visible:outline-offset-2 disabled:opacity-50"
             disabled={status === "starting"}
             onClick={scanNext}
             type="button"
           >
-            Scan next
+            Resume scan
           </button>
         </div>
 
         {message ? (
-          <p className="mt-3 rounded-md border border-zinc-800 bg-zinc-900 p-3 text-sm text-zinc-100">
+          <p
+            className={`mt-3 border p-3 text-sm ${
+              status === "error" || message.toLowerCase().includes("required")
+                ? "border-stamp-red bg-paper-light text-stamp-red"
+                : "border-perforation-grey bg-paper-light text-ledger-ink"
+            }`}
+          >
             {message}
           </p>
         ) : null}
 
         {duplicateWarning ? (
-          <p className="mt-3 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-100">
+          <p className="mt-3 border border-manifest-amber bg-paper-light p-3 text-sm text-ledger-ink">
             {duplicateWarning}
           </p>
         ) : null}
 
         {ocrNote ? (
           <p
-            className={`mt-3 rounded-md border p-3 text-sm ${
+            className={`mt-3 border p-3 text-sm ${
               ocrStatus === "done"
-                ? "border-sky-400/40 bg-sky-500/10 text-sky-100"
+                ? "border-manifest-green bg-paper-light text-manifest-green"
                 : ocrStatus === "running"
-                  ? "border-zinc-700 bg-zinc-900 text-zinc-100"
-                  : "border-zinc-800 bg-zinc-900 text-zinc-300"
+                  ? "border-perforation-grey bg-paper-light text-ledger-ink"
+                  : "border-stamp-red bg-paper-light text-stamp-red"
             }`}
           >
             {ocrNote}
@@ -545,76 +596,92 @@ export function ScanClient({
         ) : null}
 
         <form
-          className="mt-4 space-y-4 pb-6"
+          className="relative mt-4 border-x-2 border-b-2 border-dashed border-perforation-grey bg-paper-light px-4 pb-5 pt-6 shadow-[0_8px_0_rgba(20,32,43,0.12)] before:absolute before:inset-x-0 before:top-0 before:border-t-2 before:border-dashed before:border-ledger-ink"
           onSubmit={(event) => {
             event.preventDefault();
             void savePickup();
           }}
         >
-          <label className="block">
-            <span className="text-sm font-medium text-zinc-200">
-              Tracking number
-            </span>
-            <input
-              className="mt-2 w-full rounded-md border border-zinc-700 bg-zinc-900 px-4 py-4 text-lg text-white outline-none focus:border-emerald-400"
-              inputMode="text"
-              onBlur={() => void checkDuplicate(trackingNumber.trim())}
-              onChange={(event) => {
-                setTrackingNumber(event.target.value);
-                setDuplicateWarning("");
-              }}
-              value={trackingNumber}
-              required
-            />
-          </label>
+          {receivedStamp ? (
+            <div className="stamp-mark pointer-events-none absolute right-5 top-16 z-10 rounded-[3px] px-4 py-2 font-display text-4xl font-extrabold uppercase leading-none">
+              Received
+            </div>
+          ) : null}
 
-          <label className="block">
-            <span className="flex items-center justify-between gap-3 text-sm font-medium text-zinc-200">
-              Recipient name
-              {ocrNamePendingVerify ? (
-                <span className="text-xs font-normal text-sky-200">
-                  Auto-filled, verify
-                </span>
-              ) : null}
-            </span>
-            <input
-              className={`mt-2 w-full rounded-md border bg-zinc-900 px-4 py-4 text-lg text-white outline-none focus:border-emerald-400 ${
-                ocrNamePendingVerify ? "border-sky-400" : "border-zinc-700"
-              }`}
-              onChange={(event) => {
-                setRecipientNameTouched(true);
-                setOcrNamePendingVerify(false);
-                setRecipientName(event.target.value);
-              }}
-              value={recipientName}
-            />
-          </label>
+          <div className="space-y-4">
+            <label className="block">
+              <span className="font-mono text-xs font-medium uppercase text-ledger-ink/70">
+                Tracking no.
+              </span>
+              <input
+                className="mt-1 w-full border-0 border-b border-dashed border-perforation-grey bg-transparent px-0 py-3 font-mono text-lg font-medium text-ledger-ink outline-none focus:border-manifest-amber focus-visible:outline-2 focus-visible:outline-offset-2"
+                inputMode="text"
+                onBlur={() => void checkDuplicate(trackingNumber.trim())}
+                onChange={(event) => {
+                  setTrackingNumber(event.target.value);
+                  setDuplicateWarning("");
+                }}
+                value={trackingNumber}
+                required
+              />
+            </label>
 
-          <label className="block">
-            <span className="flex items-center justify-between gap-3 text-sm font-medium text-zinc-200">
-              Recipient phone
-              {ocrPhonePendingVerify ? (
-                <span className="text-xs font-normal text-sky-200">
-                  Auto-filled, verify
+            <label className="block">
+              <span className="flex items-center justify-between gap-3">
+                <span className="font-mono text-xs font-medium uppercase text-ledger-ink/70">
+                  Recipient
                 </span>
-              ) : null}
-            </span>
-            <input
-              className={`mt-2 w-full rounded-md border bg-zinc-900 px-4 py-4 text-lg text-white outline-none focus:border-emerald-400 ${
-                ocrPhonePendingVerify ? "border-sky-400" : "border-zinc-700"
-              }`}
-              inputMode="tel"
-              onChange={(event) => {
-                setRecipientPhoneTouched(true);
-                setOcrPhonePendingVerify(false);
-                setRecipientPhone(event.target.value);
-              }}
-              value={recipientPhone}
-            />
-          </label>
+                {ocrNamePendingVerify ? (
+                  <span className="font-mono text-xs text-manifest-green">
+                    Auto-filled, verify
+                  </span>
+                ) : null}
+              </span>
+              <input
+                className={`mt-1 w-full border-0 border-b border-dashed bg-transparent px-0 py-3 text-lg text-ledger-ink outline-none focus:border-manifest-amber focus-visible:outline-2 focus-visible:outline-offset-2 ${
+                  ocrNamePendingVerify
+                    ? "border-manifest-green"
+                    : "border-perforation-grey"
+                }`}
+                onChange={(event) => {
+                  setRecipientNameTouched(true);
+                  setOcrNamePendingVerify(false);
+                  setRecipientName(event.target.value);
+                }}
+                value={recipientName}
+              />
+            </label>
+
+            <label className="block">
+              <span className="flex items-center justify-between gap-3">
+                <span className="font-mono text-xs font-medium uppercase text-ledger-ink/70">
+                  Phone
+                </span>
+                {ocrPhonePendingVerify ? (
+                  <span className="font-mono text-xs text-manifest-green">
+                    Auto-filled, verify
+                  </span>
+                ) : null}
+              </span>
+              <input
+                className={`mt-1 w-full border-0 border-b border-dashed bg-transparent px-0 py-3 font-mono text-lg text-ledger-ink outline-none focus:border-manifest-amber focus-visible:outline-2 focus-visible:outline-offset-2 ${
+                  ocrPhonePendingVerify
+                    ? "border-manifest-green"
+                    : "border-perforation-grey"
+                }`}
+                inputMode="tel"
+                onChange={(event) => {
+                  setRecipientPhoneTouched(true);
+                  setOcrPhonePendingVerify(false);
+                  setRecipientPhone(event.target.value);
+                }}
+                value={recipientPhone}
+              />
+            </label>
+          </div>
 
           <button
-            className="w-full rounded-md bg-emerald-500 px-4 py-4 text-base font-semibold text-zinc-950 transition hover:bg-emerald-400 disabled:opacity-60"
+            className="mt-5 w-full rounded-[6px] bg-manifest-amber px-4 py-4 text-base font-bold text-ledger-ink transition hover:bg-[#c87d1d] focus-visible:outline-2 focus-visible:outline-offset-2 disabled:opacity-60"
             disabled={isSaving}
             type="submit"
           >
