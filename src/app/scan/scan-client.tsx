@@ -25,28 +25,9 @@ function delay(milliseconds: number) {
 function isIOSBrowser() {
   return (
     typeof navigator !== "undefined" &&
-    /iPad|iPhone|iPod/.test(navigator.userAgent)
+    (/iPad|iPhone|iPod/.test(navigator.userAgent) ||
+      (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1))
   );
-}
-
-function captureScannerCanvasFrame() {
-  const scannerCanvas = document.querySelector<HTMLCanvasElement>(
-    `#${readerId} canvas`,
-  );
-  if (!scannerCanvas?.width || !scannerCanvas.height) {
-    return null;
-  }
-
-  const fallbackCanvas = document.createElement("canvas");
-  fallbackCanvas.width = scannerCanvas.width;
-  fallbackCanvas.height = scannerCanvas.height;
-  fallbackCanvas.getContext("2d")?.drawImage(scannerCanvas, 0, 0);
-  console.info("[ParcelLog OCR] captured scanner canvas frame", {
-    width: fallbackCanvas.width,
-    height: fallbackCanvas.height,
-  });
-
-  return fallbackCanvas;
 }
 
 function prepareFrameForOcr(sourceCanvas: HTMLCanvasElement) {
@@ -74,15 +55,8 @@ function prepareFrameForOcr(sourceCanvas: HTMLCanvasElement) {
 }
 
 function captureCurrentVideoFrame() {
-  if (isIOSBrowser()) {
-    const scannerFrame = captureScannerCanvasFrame();
-    if (scannerFrame) {
-      return scannerFrame;
-    }
-  }
-
   const video = document.querySelector<HTMLVideoElement>(`#${readerId} video`);
-  console.info("[ParcelLog OCR] capture before stop", {
+  console.info("[ParcelLog OCR] capture video frame", {
     hasVideo: Boolean(video),
     readyState: video?.readyState,
     paused: video?.paused,
@@ -100,13 +74,8 @@ function captureCurrentVideoFrame() {
   });
 
   if (!video?.videoWidth || !video.videoHeight) {
-    const scannerFrame = captureScannerCanvasFrame();
-    if (!scannerFrame) {
-      console.info("[ParcelLog OCR] capture failed: no video or canvas frame");
-      return null;
-    }
-
-    return scannerFrame;
+    console.info("[ParcelLog OCR] capture failed: video frame not ready");
+    return null;
   }
 
   const canvas = document.createElement("canvas");
