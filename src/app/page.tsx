@@ -57,12 +57,6 @@ export default function Home() {
           >
             Log in
           </a>
-          <a
-            className="rounded-[6px] border border-ledger-ink bg-paper-light px-5 py-3 text-center text-sm font-bold text-ledger-ink transition hover:bg-ledger-ink hover:text-kraft-paper active:translate-y-px active:bg-manifest-amber active:text-ledger-ink active:shadow-inner focus-visible:outline-2 focus-visible:outline-offset-2"
-            href="/signup"
-          >
-            Create account
-          </a>
         </div>
       </section>
     </main>

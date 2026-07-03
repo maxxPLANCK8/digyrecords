@@ -1,5 +1,5 @@
-import Link from "next/link";
 import { login } from "@/app/auth/actions";
+import Link from "next/link";
 
 type LoginPageProps = {
   searchParams: Promise<{
@@ -74,13 +74,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
         </form>
 
         <p className="mt-6 text-sm text-ledger-ink/70">
-          Need an account?{" "}
-          <Link
-            className="font-medium text-manifest-green underline-offset-4 active:text-manifest-amber focus-visible:outline-2"
-            href="/signup"
-          >
-            Sign up
-          </Link>
+          Staff access is issued by your shop admin.
         </p>
       </section>
     </main>
