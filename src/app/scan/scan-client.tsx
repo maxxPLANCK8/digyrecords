@@ -166,6 +166,7 @@ export function ScanClient({
   const supabase = useMemo(() => createClient(), []);
   const scannerRef = useRef<import("html5-qrcode").Html5Qrcode | null>(null);
   const startingRef = useRef(false);
+  const decodeLockedRef = useRef(false);
   const [status, setStatus] = useState<ScannerStatus>("idle");
   const [message, setMessage] = useState("");
   const [trackingNumber, setTrackingNumber] = useState("");
@@ -276,6 +277,7 @@ export function ScanClient({
     setStatus("starting");
     setMessage("");
     setDuplicateWarning("");
+    decodeLockedRef.current = false;
     setOcrStatus("idle");
     setOcrNote("");
     setOcrNamePendingVerify(false);
@@ -323,11 +325,16 @@ export function ScanClient({
           },
         },
         async (decodedText) => {
+          if (decodeLockedRef.current) {
+            return;
+          }
+
           const decodedValue = decodedText.trim();
           if (!decodedValue) {
             return;
           }
 
+          decodeLockedRef.current = true;
           const frozenFrame = captureCurrentVideoFrame();
           console.info("[ParcelLog OCR] decode success, frame ready", {
             decodedValue,
@@ -340,7 +347,6 @@ export function ScanClient({
           setStatus("paused");
           setMessage("Barcode captured. Confirm the pickup details.");
           void runOcr(frozenFrame);
-          await stopScanner();
         },
         () => {},
       );
@@ -356,7 +362,7 @@ export function ScanClient({
     } finally {
       startingRef.current = false;
     }
-  }, [runOcr, stopScanner]);
+  }, [runOcr]);
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
@@ -431,7 +437,36 @@ export function ScanClient({
     setOcrNamePendingVerify(false);
     setOcrPhonePendingVerify(false);
     setDuplicateWarning("");
+    decodeLockedRef.current = false;
+    if (scannerRef.current?.isScanning) {
+      setStatus("scanning");
+      return;
+    }
+
     await startScanner();
+  }
+
+  function scanNext() {
+    setMessage("Ready for the next parcel.");
+    setTrackingNumber("");
+    setRawPayload("");
+    setRecipientName("");
+    setRecipientPhone("");
+    setRecipientNameTouched(false);
+    setRecipientPhoneTouched(false);
+    setOcrStatus("idle");
+    setOcrNote("");
+    setOcrNamePendingVerify(false);
+    setOcrPhonePendingVerify(false);
+    setDuplicateWarning("");
+    decodeLockedRef.current = false;
+
+    if (scannerRef.current?.isScanning) {
+      setStatus("scanning");
+      return;
+    }
+
+    void startScanner();
   }
 
   return (
@@ -468,18 +503,18 @@ export function ScanClient({
               : status === "starting"
                 ? "Starting camera"
                 : status === "paused"
-                  ? "Frame captured"
+                  ? "Barcode captured"
                   : status === "error"
                     ? "Camera issue"
                     : "Idle"}
           </span>
           <button
             className="rounded-md bg-white px-3 py-2 font-medium text-zinc-950 disabled:opacity-50"
-            disabled={status === "starting" || status === "scanning"}
-            onClick={startScanner}
+            disabled={status === "starting"}
+            onClick={scanNext}
             type="button"
           >
-            Resume scan
+            Scan next
           </button>
         </div>
 
