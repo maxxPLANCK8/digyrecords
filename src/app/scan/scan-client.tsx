@@ -170,6 +170,7 @@ export function ScanClient({
   const decodeLockedRef = useRef(false);
   const pendingItemsRef = useRef<PendingItem[]>([]);
   const decodeLoopTickRef = useRef(0);
+  const rescanInFlightRef = useRef(false);
   const [status, setStatus] = useState<ScannerStatus>("idle");
   const [isScannerHealthy, setIsScannerHealthy] = useState(false);
   const [message, setMessage] = useState("");
@@ -186,6 +187,13 @@ export function ScanClient({
   const [saveJustSucceeded, setSaveJustSucceeded] = useState(false);
   const [receivedStamp, setReceivedStamp] = useState(false);
   const stampTimeoutRef = useRef<number | null>(null);
+
+  const markDecodeLoopAlive = useCallback(() => {
+    const now = Date.now();
+    if (now - decodeLoopTickRef.current > 500) {
+      decodeLoopTickRef.current = now;
+    }
+  }, []);
 
   function setPendingItemsSynced(
     next:
@@ -390,7 +398,7 @@ export function ScanClient({
               },
             },
         async (decodedText) => {
-          decodeLoopTickRef.current = Date.now();
+          markDecodeLoopAlive();
           if (decodeLockedRef.current) {
             return;
           }
@@ -433,7 +441,7 @@ export function ScanClient({
           }
         },
         () => {
-          decodeLoopTickRef.current = Date.now();
+          markDecodeLoopAlive();
         },
       );
 
@@ -451,7 +459,7 @@ export function ScanClient({
     } finally {
       startingRef.current = false;
     }
-  }, [checkDuplicate, runOcr]);
+  }, [checkDuplicate, markDecodeLoopAlive, runOcr]);
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
@@ -490,13 +498,18 @@ export function ScanClient({
           video.videoHeight > 0,
       );
       const decodeLoopActive =
-        Date.now() - decodeLoopTickRef.current < 2500;
+        Date.now() - decodeLoopTickRef.current < 3000;
 
-      setIsScannerHealthy(
+      const nextScannerHealthy =
         Boolean(scannerRef.current?.isScanning) &&
-          hasLiveTrack &&
-          hasVideoFrame &&
-          decodeLoopActive,
+        hasLiveTrack &&
+        hasVideoFrame &&
+        decodeLoopActive;
+
+      setIsScannerHealthy((currentValue) =>
+        currentValue === nextScannerHealthy
+          ? currentValue
+          : nextScannerHealthy,
       );
     };
 
@@ -570,23 +583,33 @@ export function ScanClient({
   }
 
   async function rescanNow() {
-    if (startingRef.current) {
+    if (startingRef.current || rescanInFlightRef.current) {
       return;
     }
 
+    rescanInFlightRef.current = true;
     setMessage("Restarting scanner.");
     setIsScannerHealthy(false);
     decodeLockedRef.current = false;
-    await stopScanner();
 
     try {
-      await scannerRef.current?.clear();
-    } catch {
-      // Recreating the scanner below is enough if clear is unavailable.
-    }
+      const previousScanner = scannerRef.current;
+      scannerRef.current = null;
 
-    scannerRef.current = null;
-    await startScanner();
+      if (previousScanner?.isScanning) {
+        await previousScanner.stop();
+      }
+
+      try {
+        await previousScanner?.clear();
+      } catch {
+        // Recreating the scanner below is enough if clear is unavailable.
+      }
+
+      await startScanner();
+    } finally {
+      rescanInFlightRef.current = false;
+    }
   }
 
   function removePendingItem(trackingNumber: string) {
