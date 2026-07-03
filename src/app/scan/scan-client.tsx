@@ -233,6 +233,7 @@ export function ScanClient({
   const [saveJustSucceeded, setSaveJustSucceeded] = useState(false);
   const [receivedStamp, setReceivedStamp] = useState(false);
   const [ocrDebugImage, setOcrDebugImage] = useState("");
+  const [ocrDebugText, setOcrDebugText] = useState("");
   const stampTimeoutRef = useRef<number | null>(null);
 
   const runOcr = useCallback(
@@ -252,6 +253,7 @@ export function ScanClient({
 
       setOcrStatus("running");
       setOcrNote("Reading label text...");
+      setOcrDebugText("");
 
       try {
         const { recognize } = await import("tesseract.js");
@@ -266,6 +268,7 @@ export function ScanClient({
           tessedit_pageseg_mode: string;
         });
         console.info("[ParcelLog OCR] raw text", text);
+        setOcrDebugText(text);
         const parsed = parseRecipientOcr(text);
 
         if (!parsed.phone) {
@@ -336,6 +339,7 @@ export function ScanClient({
     setOcrNamePendingVerify(false);
     setOcrPhonePendingVerify(false);
     setOcrDebugImage("");
+    setOcrDebugText("");
 
     try {
       const { Html5Qrcode, Html5QrcodeSupportedFormats } = await import(
@@ -516,6 +520,7 @@ export function ScanClient({
     setOcrNamePendingVerify(false);
     setOcrPhonePendingVerify(false);
     setOcrDebugImage("");
+    setOcrDebugText("");
     setDuplicateWarning("");
     setSaveJustSucceeded(false);
     decodeLockedRef.current = false;
@@ -542,6 +547,7 @@ export function ScanClient({
     setOcrNamePendingVerify(false);
     setOcrPhonePendingVerify(false);
     setOcrDebugImage("");
+    setOcrDebugText("");
     setDuplicateWarning("");
     decodeLockedRef.current = false;
 
@@ -677,6 +683,17 @@ export function ScanClient({
               className="mt-2 h-auto w-[150px] border border-perforation-grey"
               src={ocrDebugImage}
             />
+          </div>
+        ) : null}
+
+        {ocrDebugText ? (
+          <div className="mt-3 border border-dashed border-perforation-grey bg-paper-light p-3">
+            <p className="font-mono text-xs font-medium uppercase text-ledger-ink/70">
+              OCR text
+            </p>
+            <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap font-mono text-xs leading-5 text-ledger-ink">
+              {ocrDebugText}
+            </pre>
           </div>
         ) : null}
 
