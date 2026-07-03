@@ -16,10 +16,34 @@ type ScanClientProps = {
 type ScannerStatus = "idle" | "starting" | "scanning" | "paused" | "error";
 type OcrStatus = "idle" | "running" | "done" | "failed";
 
+type PendingItem = {
+  trackingNumber: string;
+  rawPayload: string;
+  duplicateWarning: string;
+};
+
+type GeminiOcrResult = {
+  name: string;
+  phone: string;
+};
+
 const readerId = "parcel-scanner-reader";
 
 function delay(milliseconds: number) {
   return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+}
+
+function timeout<T>(promise: Promise<T>, milliseconds: number) {
+  return new Promise<T>((resolve, reject) => {
+    const timeoutId = window.setTimeout(() => {
+      reject(new Error("OCR timed out."));
+    }, milliseconds);
+
+    promise
+      .then(resolve)
+      .catch(reject)
+      .finally(() => window.clearTimeout(timeoutId));
+  });
 }
 
 function waitForVideoReady(video: HTMLVideoElement, maxAttempts = 10) {
@@ -56,30 +80,6 @@ function isIOSBrowser() {
   );
 }
 
-function prepareFrameForOcr(sourceCanvas: HTMLCanvasElement) {
-  const ocrCanvas = document.createElement("canvas");
-  const sourceWidth = sourceCanvas.width;
-  const sourceHeight = sourceCanvas.height;
-  const scale = Math.min(Math.max(1800 / sourceWidth, 1.4), 2.2);
-
-  ocrCanvas.width = Math.floor(sourceWidth * scale);
-  ocrCanvas.height = Math.floor(sourceHeight * scale);
-
-  const context = ocrCanvas.getContext("2d");
-  if (!context) {
-    return null;
-  }
-
-  context.imageSmoothingEnabled = true;
-  context.imageSmoothingQuality = "high";
-  context.filter = "grayscale(1) contrast(1.45)";
-  context.fillStyle = "white";
-  context.fillRect(0, 0, ocrCanvas.width, ocrCanvas.height);
-  context.drawImage(sourceCanvas, 0, 0, ocrCanvas.width, ocrCanvas.height);
-
-  return ocrCanvas;
-}
-
 async function captureCurrentVideoFrame() {
   const video = document.querySelector<HTMLVideoElement>(`#${readerId} video`);
   console.info("[ParcelLog OCR] capture video frame", {
@@ -89,14 +89,6 @@ async function captureCurrentVideoFrame() {
     ended: video?.ended,
     videoWidth: video?.videoWidth,
     videoHeight: video?.videoHeight,
-    tracks:
-      video?.srcObject instanceof MediaStream
-        ? video.srcObject.getVideoTracks().map((track) => ({
-            enabled: track.enabled,
-            muted: track.muted,
-            readyState: track.readyState,
-          }))
-        : [],
   });
 
   if (!video) {
@@ -135,74 +127,34 @@ async function captureCurrentVideoFrame() {
   return canvas;
 }
 
-function canvasToDebugImage(sourceCanvas: HTMLCanvasElement | null) {
-  if (!sourceCanvas) {
+function canvasToJpegBase64(sourceCanvas: HTMLCanvasElement) {
+  const longEdge = Math.max(sourceCanvas.width, sourceCanvas.height);
+  const scale = Math.min(1000 / longEdge, 1);
+  const targetCanvas = document.createElement("canvas");
+  targetCanvas.width = Math.max(1, Math.round(sourceCanvas.width * scale));
+  targetCanvas.height = Math.max(1, Math.round(sourceCanvas.height * scale));
+
+  const context = targetCanvas.getContext("2d");
+  if (!context) {
     return "";
   }
 
-  try {
-    return sourceCanvas.toDataURL("image/jpeg", 0.72);
-  } catch {
-    return "";
-  }
+  context.imageSmoothingEnabled = true;
+  context.imageSmoothingQuality = "high";
+  context.drawImage(sourceCanvas, 0, 0, targetCanvas.width, targetCanvas.height);
+
+  return targetCanvas.toDataURL("image/jpeg", 0.78).split(",")[1] || "";
 }
 
 function normalizePhone(rawPhone: string) {
   return rawPhone.replace(/[^\d+]/g, "").replace(/^\+/, "");
 }
 
-function normalizeOcrLine(line: string) {
-  return line
-    .replace(/[|]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function findRecipientLine(lines: string[]) {
-  return lines
-    .map(normalizeOcrLine)
-    .find((line) => /(?:^|\b)(?:to|t0|tot)\s*[:：]?\s+/i.test(line));
-}
-
-function parseRecipientOcr(rawText: string) {
-  const lines = rawText.split(/\r?\n/);
-  const recipientLine = findRecipientLine(lines);
-
-  if (!recipientLine) {
-    console.info("[ParcelLog OCR] no recipient line found", { lines });
-    return { name: "", phone: "" };
-  }
-
-  const lineWithoutPrefix = recipientLine
-    .replace(/^(.*?\b(?:to|t0|tot)\s*[:：]?\s*)/i, "")
-    .trim();
-  const phoneMatch = lineWithoutPrefix.match(
-    /(?:\+?254[\s-]?\d[\d\s-]{7,11}|0\d[\d\s-]{7,10}|\d[\d\s-]{8,9})/,
-  );
-
-  if (!phoneMatch) {
-    console.info("[ParcelLog OCR] recipient line had no phone", {
-      recipientLine,
-      lineWithoutPrefix,
-    });
-    return { name: "", phone: "" };
-  }
-
-  const phone = normalizePhone(phoneMatch[0]);
-  const name = lineWithoutPrefix
-    .replace(phoneMatch[0], " ")
-    .replace(/\b(to|t0|tot|tel|phone|mobile)\b/gi, "")
-    .replace(/[^a-zA-Z\s.'-]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-
-  console.info("[ParcelLog OCR] parsed recipient line", {
-    recipientLine,
-    name,
-    phone,
-  });
-
-  return { name, phone };
+function cleanGeminiResult(result: GeminiOcrResult): GeminiOcrResult {
+  return {
+    name: result.name.trim(),
+    phone: normalizePhone(result.phone),
+  };
 }
 
 export function ScanClient({
@@ -216,10 +168,10 @@ export function ScanClient({
   const scannerRef = useRef<import("html5-qrcode").Html5Qrcode | null>(null);
   const startingRef = useRef(false);
   const decodeLockedRef = useRef(false);
+  const pendingItemsRef = useRef<PendingItem[]>([]);
   const [status, setStatus] = useState<ScannerStatus>("idle");
   const [message, setMessage] = useState("");
-  const [trackingNumber, setTrackingNumber] = useState("");
-  const [rawPayload, setRawPayload] = useState("");
+  const [pendingItems, setPendingItems] = useState<PendingItem[]>([]);
   const [recipientName, setRecipientName] = useState("");
   const [recipientPhone, setRecipientPhone] = useState("");
   const [recipientNameTouched, setRecipientNameTouched] = useState(false);
@@ -228,59 +180,91 @@ export function ScanClient({
   const [ocrNote, setOcrNote] = useState("");
   const [ocrNamePendingVerify, setOcrNamePendingVerify] = useState(false);
   const [ocrPhonePendingVerify, setOcrPhonePendingVerify] = useState(false);
-  const [duplicateWarning, setDuplicateWarning] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [saveJustSucceeded, setSaveJustSucceeded] = useState(false);
   const [receivedStamp, setReceivedStamp] = useState(false);
-  const [ocrDebugImage, setOcrDebugImage] = useState("");
-  const [ocrDebugText, setOcrDebugText] = useState("");
   const stampTimeoutRef = useRef<number | null>(null);
+
+  function setPendingItemsSynced(
+    next:
+      | PendingItem[]
+      | ((currentItems: PendingItem[]) => PendingItem[]),
+  ) {
+    setPendingItems((currentItems) => {
+      const resolved =
+        typeof next === "function" ? next(currentItems) : next;
+      pendingItemsRef.current = resolved;
+      return resolved;
+    });
+  }
+
+  const checkDuplicate = useCallback(
+    async (nextTrackingNumber: string) => {
+      if (!nextTrackingNumber) {
+        return "";
+      }
+
+      const { data } = await supabase
+        .from("pickups")
+        .select("tracking_number, scanned_at")
+        .eq("org_id", orgId)
+        .eq("tracking_number", nextTrackingNumber)
+        .order("scanned_at", { ascending: false })
+        .limit(1);
+
+      if (!data?.[0]) {
+        return "";
+      }
+
+      return `Already logged at ${formatPickupTimestamp(data[0].scanned_at)}.`;
+    },
+    [orgId, supabase],
+  );
 
   const runOcr = useCallback(
     async (sourceCanvas: HTMLCanvasElement | null) => {
       if (!sourceCanvas) {
         setOcrStatus("failed");
-        setOcrNote("OCR could not read the frozen frame.");
+        setOcrNote("OCR could not read the frame. Type details manually.");
         return;
       }
 
-      const ocrCanvas = prepareFrameForOcr(sourceCanvas);
-      if (!ocrCanvas) {
+      const imageBase64 = canvasToJpegBase64(sourceCanvas);
+      if (!imageBase64) {
         setOcrStatus("failed");
-        setOcrNote("OCR could not prepare the frozen frame.");
+        setOcrNote("OCR could not prepare the frame. Type details manually.");
         return;
       }
 
       setOcrStatus("running");
-      setOcrNote("Reading label text...");
-      setOcrDebugText("");
+      setOcrNote("Reading label...");
 
       try {
-        const { recognize } = await import("tesseract.js");
-        const {
-          data: { text },
-        } = await recognize(ocrCanvas, "eng", {
-          logger: () => {},
-          // Tesseract supports this runtime parameter, but the convenience
-          // wrapper types only expose WorkerOptions.
-          tessedit_pageseg_mode: "6",
-        } as Parameters<typeof recognize>[2] & {
-          tessedit_pageseg_mode: string;
-        });
-        console.info("[ParcelLog OCR] raw text", text);
-        setOcrDebugText(text);
-        const parsed = parseRecipientOcr(text);
+        const response = await timeout(
+          fetch("/api/ocr-label", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ imageBase64 }),
+          }),
+          6000,
+        );
 
-        if (!parsed.phone) {
+        if (!response.ok) {
+          throw new Error("OCR request failed.");
+        }
+
+        const parsed = cleanGeminiResult(
+          (await response.json()) as GeminiOcrResult,
+        );
+
+        if (!parsed.name && !parsed.phone) {
           setOcrStatus("failed");
-          setOcrNote(
-            "OCR did not find a phone on the To line. Type details manually.",
-          );
+          setOcrNote("OCR did not find a clear To line. Type details manually.");
           return;
         }
 
         setRecipientPhone((currentValue) => {
-          if (recipientPhoneTouched || currentValue.trim()) {
+          if (recipientPhoneTouched || currentValue.trim() || !parsed.phone) {
             return currentValue;
           }
 
@@ -288,16 +272,14 @@ export function ScanClient({
           return parsed.phone;
         });
 
-        if (parsed.name) {
-          setRecipientName((currentValue) => {
-            if (recipientNameTouched || currentValue.trim()) {
-              return currentValue;
-            }
+        setRecipientName((currentValue) => {
+          if (recipientNameTouched || currentValue.trim() || !parsed.name) {
+            return currentValue;
+          }
 
-            setOcrNamePendingVerify(true);
-            return parsed.name;
-          });
-        }
+          setOcrNamePendingVerify(true);
+          return parsed.name;
+        });
 
         setOcrStatus("done");
         setOcrNote("Auto-filled from OCR. Please verify before confirming.");
@@ -324,6 +306,22 @@ export function ScanClient({
     }
   }, []);
 
+  const resetBatch = useCallback(() => {
+    setMessage("Ready for the next parcel.");
+    setSaveJustSucceeded(false);
+    setReceivedStamp(false);
+    setPendingItemsSynced([]);
+    setRecipientName("");
+    setRecipientPhone("");
+    setRecipientNameTouched(false);
+    setRecipientPhoneTouched(false);
+    setOcrStatus("idle");
+    setOcrNote("");
+    setOcrNamePendingVerify(false);
+    setOcrPhonePendingVerify(false);
+    decodeLockedRef.current = false;
+  }, []);
+
   const startScanner = useCallback(async () => {
     if (startingRef.current) {
       return;
@@ -332,14 +330,13 @@ export function ScanClient({
     startingRef.current = true;
     setStatus("starting");
     setMessage("");
-    setDuplicateWarning("");
     decodeLockedRef.current = false;
-    setOcrStatus("idle");
-    setOcrNote("");
-    setOcrNamePendingVerify(false);
-    setOcrPhonePendingVerify(false);
-    setOcrDebugImage("");
-    setOcrDebugText("");
+    if (!pendingItemsRef.current.length) {
+      setOcrStatus("idle");
+      setOcrNote("");
+      setOcrNamePendingVerify(false);
+      setOcrPhonePendingVerify(false);
+    }
 
     try {
       const { Html5Qrcode, Html5QrcodeSupportedFormats } = await import(
@@ -401,19 +398,36 @@ export function ScanClient({
           }
 
           decodeLockedRef.current = true;
-          const frozenFrame = await captureCurrentVideoFrame();
-          setOcrDebugImage(canvasToDebugImage(frozenFrame));
-          console.info("[ParcelLog OCR] decode success, frame ready", {
-            decodedValue,
-            hasFrame: Boolean(frozenFrame),
-            frameWidth: frozenFrame?.width,
-            frameHeight: frozenFrame?.height,
-          });
-          setRawPayload(decodedValue);
-          setTrackingNumber(decodedValue);
+          const existingBatchItem = pendingItemsRef.current.find(
+            (item) => item.trackingNumber === decodedValue,
+          );
+
+          if (existingBatchItem) {
+            setStatus("paused");
+            setMessage("Already scanned in this pickup.");
+            return;
+          }
+
+          const shouldReadOcr = pendingItemsRef.current.length === 0;
+          const frozenFrame = shouldReadOcr
+            ? await captureCurrentVideoFrame()
+            : null;
+          const duplicateWarning = await checkDuplicate(decodedValue);
+
+          setPendingItemsSynced((currentItems) => [
+            ...currentItems,
+            {
+              trackingNumber: decodedValue,
+              rawPayload: decodedValue,
+              duplicateWarning,
+            },
+          ]);
           setStatus("paused");
-          setMessage("Barcode captured. Confirm the pickup details.");
-          void runOcr(frozenFrame);
+          setMessage("Barcode captured. Review the pickup details.");
+
+          if (shouldReadOcr) {
+            void runOcr(frozenFrame);
+          }
         },
         () => {},
       );
@@ -429,7 +443,7 @@ export function ScanClient({
     } finally {
       startingRef.current = false;
     }
-  }, [runOcr]);
+  }, [checkDuplicate, runOcr]);
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
@@ -445,51 +459,29 @@ export function ScanClient({
     };
   }, [startScanner, stopScanner]);
 
-  async function checkDuplicate(nextTrackingNumber: string) {
-    if (!nextTrackingNumber) {
-      setDuplicateWarning("");
-      return;
-    }
-
-    const { data } = await supabase
-      .from("pickups")
-      .select("tracking_number, scanned_at")
-      .eq("org_id", orgId)
-      .eq("tracking_number", nextTrackingNumber)
-      .order("scanned_at", { ascending: false })
-      .limit(1);
-
-    if (data?.[0]) {
-      setDuplicateWarning(
-        `Already logged at ${formatPickupTimestamp(data[0].scanned_at)}. You can confirm again if this is intentional.`,
-      );
-    } else {
-      setDuplicateWarning("");
-    }
-  }
-
   async function savePickup() {
     if (isSaving || saveJustSucceeded) {
       return;
     }
 
-    const nextTrackingNumber = trackingNumber.trim();
-    if (!nextTrackingNumber) {
-      setMessage("Tracking number is required.");
+    if (!pendingItems.length) {
+      setMessage("Scan at least one parcel before confirming.");
       return;
     }
 
     setIsSaving(true);
     setMessage("");
 
-    const { error } = await supabase.from("pickups").insert({
-      org_id: orgId,
-      tracking_number: nextTrackingNumber,
-      recipient_name: recipientName.trim() || null,
-      recipient_phone: recipientPhone.trim() || null,
-      scanned_by: orgMemberId,
-      raw_barcode_payload: rawPayload || nextTrackingNumber,
-    });
+    const { error } = await supabase.from("pickups").insert(
+      pendingItems.map((item) => ({
+        org_id: orgId,
+        tracking_number: item.trackingNumber,
+        recipient_name: recipientName.trim() || null,
+        recipient_phone: recipientPhone.trim() || null,
+        scanned_by: orgMemberId,
+        raw_barcode_payload: item.rawPayload,
+      })),
+    );
 
     setIsSaving(false);
 
@@ -509,21 +501,7 @@ export function ScanClient({
       setReceivedStamp(false);
     }, 900);
     await delay(450);
-    setTrackingNumber("");
-    setRawPayload("");
-    setRecipientName("");
-    setRecipientPhone("");
-    setRecipientNameTouched(false);
-    setRecipientPhoneTouched(false);
-    setOcrStatus("idle");
-    setOcrNote("");
-    setOcrNamePendingVerify(false);
-    setOcrPhonePendingVerify(false);
-    setOcrDebugImage("");
-    setOcrDebugText("");
-    setDuplicateWarning("");
-    setSaveJustSucceeded(false);
-    decodeLockedRef.current = false;
+    resetBatch();
     if (scannerRef.current?.isScanning) {
       setStatus("scanning");
       return;
@@ -534,21 +512,6 @@ export function ScanClient({
 
   function scanNext() {
     setMessage("Ready for the next parcel.");
-    setSaveJustSucceeded(false);
-    setReceivedStamp(false);
-    setTrackingNumber("");
-    setRawPayload("");
-    setRecipientName("");
-    setRecipientPhone("");
-    setRecipientNameTouched(false);
-    setRecipientPhoneTouched(false);
-    setOcrStatus("idle");
-    setOcrNote("");
-    setOcrNamePendingVerify(false);
-    setOcrPhonePendingVerify(false);
-    setOcrDebugImage("");
-    setOcrDebugText("");
-    setDuplicateWarning("");
     decodeLockedRef.current = false;
 
     if (scannerRef.current?.isScanning) {
@@ -557,6 +520,17 @@ export function ScanClient({
     }
 
     void startScanner();
+  }
+
+  function removePendingItem(trackingNumber: string) {
+    const currentItemCount = pendingItemsRef.current.length;
+
+    setPendingItemsSynced((currentItems) =>
+      currentItems.filter((item) => item.trackingNumber !== trackingNumber),
+    );
+    if (currentItemCount <= 1) {
+      resetBatch();
+    }
   }
 
   return (
@@ -606,7 +580,10 @@ export function ScanClient({
         </header>
 
         <div className="scan-viewfinder relative mt-4 overflow-hidden border-2 border-ledger-ink bg-ledger-ink shadow-[0_8px_0_rgba(20,32,43,0.18)]">
-          <div className="h-[min(48vh,420px)] min-h-[260px] w-full sm:h-[430px]" id={readerId} />
+          <div
+            className="h-[min(48vh,420px)] min-h-[260px] w-full sm:h-[430px]"
+            id={readerId}
+          />
           <span className="scan-viewfinder__corner left-4 top-4 border-l-4 border-t-4" />
           <span className="scan-viewfinder__corner right-4 top-4 border-r-4 border-t-4" />
           <span className="scan-viewfinder__corner bottom-4 left-4 border-b-4 border-l-4" />
@@ -636,7 +613,7 @@ export function ScanClient({
             onClick={scanNext}
             type="button"
           >
-            Resume scan
+            Scan next
           </button>
         </div>
 
@@ -649,12 +626,6 @@ export function ScanClient({
             }`}
           >
             {message}
-          </p>
-        ) : null}
-
-        {duplicateWarning ? (
-          <p className="mt-3 border border-manifest-amber bg-paper-light p-3 text-sm text-ledger-ink">
-            {duplicateWarning}
           </p>
         ) : null}
 
@@ -672,30 +643,54 @@ export function ScanClient({
           </p>
         ) : null}
 
-        {ocrDebugImage ? (
-          <div className="mt-3 border border-dashed border-perforation-grey bg-paper-light p-3">
+        <section className="mt-4 border-y border-dashed border-perforation-grey py-3">
+          <div className="flex items-center justify-between gap-3">
             <p className="font-mono text-xs font-medium uppercase text-ledger-ink/70">
-              OCR frame
+              Scanned this pickup ({pendingItems.length})
             </p>
-            {/* eslint-disable-next-line @next/next/no-img-element -- Debug data URL, not a network image. */}
-            <img
-              alt="Captured frame sent to OCR"
-              className="mt-2 h-auto w-[150px] border border-perforation-grey"
-              src={ocrDebugImage}
-            />
+            {pendingItems.length ? (
+              <button
+                className="rounded-[6px] border border-stamp-red px-2 py-1 text-xs font-semibold text-stamp-red transition hover:bg-stamp-red hover:text-kraft-paper active:translate-y-px active:shadow-inner"
+                onClick={resetBatch}
+                type="button"
+              >
+                Clear
+              </button>
+            ) : null}
           </div>
-        ) : null}
-
-        {ocrDebugText ? (
-          <div className="mt-3 border border-dashed border-perforation-grey bg-paper-light p-3">
-            <p className="font-mono text-xs font-medium uppercase text-ledger-ink/70">
-              OCR text
-            </p>
-            <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap font-mono text-xs leading-5 text-ledger-ink">
-              {ocrDebugText}
-            </pre>
+          <div className="mt-2 space-y-2">
+            {pendingItems.map((item) => (
+              <div
+                className="flex items-start justify-between gap-3 bg-paper-light px-3 py-2"
+                key={item.trackingNumber}
+              >
+                <div className="min-w-0">
+                  <p className="break-all font-mono text-sm font-medium">
+                    {item.trackingNumber}
+                  </p>
+                  {item.duplicateWarning ? (
+                    <p className="mt-1 text-xs text-stamp-red">
+                      {item.duplicateWarning}
+                    </p>
+                  ) : null}
+                </div>
+                <button
+                  aria-label={`Remove ${item.trackingNumber}`}
+                  className="rounded-[6px] border border-ledger-ink px-2 py-1 font-mono text-xs font-semibold transition hover:bg-ledger-ink hover:text-kraft-paper active:translate-y-px active:bg-stamp-red active:text-kraft-paper"
+                  onClick={() => removePendingItem(item.trackingNumber)}
+                  type="button"
+                >
+                  x
+                </button>
+              </div>
+            ))}
+            {!pendingItems.length ? (
+              <p className="text-sm text-ledger-ink/70">
+                No parcels scanned for this pickup yet.
+              </p>
+            ) : null}
           </div>
-        ) : null}
+        </section>
 
         <form
           className="relative mt-4 border-x-2 border-b-2 border-dashed border-perforation-grey bg-paper-light px-4 pb-4 pt-5 shadow-[0_8px_0_rgba(20,32,43,0.12)] before:absolute before:inset-x-0 before:top-0 before:border-t-2 before:border-dashed before:border-ledger-ink"
@@ -711,23 +706,6 @@ export function ScanClient({
           ) : null}
 
           <div className="space-y-2.5">
-            <label className="block">
-              <span className="font-mono text-xs font-medium uppercase text-ledger-ink/70">
-                Tracking no.
-              </span>
-              <input
-                className="mt-0.5 w-full border-0 border-b border-dashed border-perforation-grey bg-transparent px-0 py-2 font-mono text-lg font-medium text-ledger-ink outline-none focus:border-manifest-amber focus-visible:outline-2 focus-visible:outline-offset-2"
-                inputMode="text"
-                onBlur={() => void checkDuplicate(trackingNumber.trim())}
-                onChange={(event) => {
-                  setTrackingNumber(event.target.value);
-                  setDuplicateWarning("");
-                }}
-                value={trackingNumber}
-                required
-              />
-            </label>
-
             <label className="block">
               <span className="flex items-center justify-between gap-3">
                 <span className="font-mono text-xs font-medium uppercase text-ledger-ink/70">
@@ -791,7 +769,9 @@ export function ScanClient({
               ? "Saving..."
               : saveJustSucceeded
                 ? "Received"
-                : "Confirm Pickup"}
+                : pendingItems.length > 1
+                  ? `Confirm Pickup (${pendingItems.length} items)`
+                  : "Confirm Pickup"}
           </button>
         </form>
       </section>
