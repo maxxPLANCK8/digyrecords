@@ -529,7 +529,7 @@ export function ScanClient({
         </header>
 
         <div className="scan-viewfinder relative mt-4 overflow-hidden border-2 border-ledger-ink bg-ledger-ink shadow-[0_8px_0_rgba(20,32,43,0.18)]">
-          <div className="aspect-[3/4] w-full" id={readerId} />
+          <div className="h-[min(48vh,420px)] min-h-[260px] w-full sm:h-[430px]" id={readerId} />
           <span className="scan-viewfinder__corner left-4 top-4 border-l-4 border-t-4" />
           <span className="scan-viewfinder__corner right-4 top-4 border-r-4 border-t-4" />
           <span className="scan-viewfinder__corner bottom-4 left-4 border-b-4 border-l-4" />
