@@ -1,6 +1,10 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { createOrg } from "@/app/admin/actions";
+import {
+  createOrg,
+  removeMember,
+  updateMemberDisplayName,
+} from "@/app/admin/actions";
 import { logout } from "@/app/auth/actions";
 import { createClient } from "@/lib/supabase/server";
 import { formatPickupTimestamp } from "@/lib/format";
@@ -290,8 +294,11 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
                       <th className="px-5 py-3 font-mono text-xs font-medium uppercase text-ledger-ink/70">
                         User ID
                       </th>
-                      <th className="py-3 pl-5 font-mono text-xs font-medium uppercase text-ledger-ink/70">
+                      <th className="px-5 py-3 font-mono text-xs font-medium uppercase text-ledger-ink/70">
                         Joined
+                      </th>
+                      <th className="py-3 pl-5 font-mono text-xs font-medium uppercase text-ledger-ink/70">
+                        Correct
                       </th>
                     </tr>
                   </thead>
@@ -310,14 +317,57 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
                         <td className="px-5 py-4 font-mono text-xs">
                           {member.user_id}
                         </td>
-                        <td className="py-4 pl-5 font-mono text-ledger-ink/75">
+                        <td className="px-5 py-4 font-mono text-ledger-ink/75">
                           {formatPickupTimestamp(member.created_at)}
+                        </td>
+                        <td className="py-4 pl-5">
+                          <div className="flex min-w-[260px] flex-col gap-2">
+                            <form
+                              action={updateMemberDisplayName}
+                              className="flex gap-2"
+                            >
+                              <input
+                                name="member_id"
+                                type="hidden"
+                                value={member.id}
+                              />
+                              <input
+                                name="org_id"
+                                type="hidden"
+                                value={selectedOrgId}
+                              />
+                              <input
+                                className="min-w-0 flex-1 border-0 border-b border-dashed border-perforation-grey bg-transparent px-0 py-2 text-sm text-ledger-ink outline-none focus:border-manifest-amber focus-visible:outline-2 focus-visible:outline-offset-2"
+                                defaultValue={member.display_name}
+                                name="display_name"
+                                required
+                              />
+                              <button className="rounded-[6px] border border-ledger-ink px-3 py-2 text-xs font-semibold transition hover:bg-ledger-ink hover:text-kraft-paper active:translate-y-px active:bg-manifest-amber active:text-ledger-ink active:shadow-inner focus-visible:outline-2 focus-visible:outline-offset-2">
+                                Save
+                              </button>
+                            </form>
+                            <form action={removeMember}>
+                              <input
+                                name="member_id"
+                                type="hidden"
+                                value={member.id}
+                              />
+                              <input
+                                name="org_id"
+                                type="hidden"
+                                value={selectedOrgId}
+                              />
+                              <button className="rounded-[6px] border border-stamp-red px-3 py-2 text-xs font-semibold text-stamp-red transition hover:bg-stamp-red hover:text-kraft-paper active:translate-y-px active:shadow-inner focus-visible:outline-2 focus-visible:outline-offset-2">
+                                Remove staff
+                              </button>
+                            </form>
+                          </div>
                         </td>
                       </tr>
                     ))}
                     {!typedStaff.length ? (
                       <tr>
-                        <td className="py-8 text-ledger-ink/70" colSpan={4}>
+                        <td className="py-8 text-ledger-ink/70" colSpan={5}>
                           No staff records visible for this filter.
                         </td>
                       </tr>

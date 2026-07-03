@@ -34,3 +34,64 @@ export async function createOrg(formData: FormData) {
   revalidatePath("/admin");
   redirect("/admin?message=Org created.");
 }
+
+export async function updateMemberDisplayName(formData: FormData) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    redirect("/login");
+  }
+
+  const memberId = requiredString(formData, "member_id");
+  const displayName = requiredString(formData, "display_name");
+  const orgId = requiredString(formData, "org_id");
+
+  if (!memberId || !displayName) {
+    redirect("/admin?error=Staff member and display name are required.");
+  }
+
+  const { error } = await supabase
+    .from("org_members")
+    .update({ display_name: displayName })
+    .eq("id", memberId);
+
+  if (error) {
+    redirect(`/admin?error=${encodeURIComponent(error.message)}`);
+  }
+
+  revalidatePath("/admin");
+  redirect(`/admin?${orgId ? `org=${orgId}&` : ""}message=Staff updated.`);
+}
+
+export async function removeMember(formData: FormData) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    redirect("/login");
+  }
+
+  const memberId = requiredString(formData, "member_id");
+  const orgId = requiredString(formData, "org_id");
+
+  if (!memberId) {
+    redirect("/admin?error=Staff member is required.");
+  }
+
+  const { error } = await supabase
+    .from("org_members")
+    .delete()
+    .eq("id", memberId);
+
+  if (error) {
+    redirect(`/admin?error=${encodeURIComponent(error.message)}`);
+  }
+
+  revalidatePath("/admin");
+  redirect(`/admin?${orgId ? `org=${orgId}&` : ""}message=Staff removed.`);
+}
