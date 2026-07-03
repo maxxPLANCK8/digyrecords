@@ -169,7 +169,9 @@ export function ScanClient({
   const startingRef = useRef(false);
   const decodeLockedRef = useRef(false);
   const pendingItemsRef = useRef<PendingItem[]>([]);
+  const decodeLoopTickRef = useRef(0);
   const [status, setStatus] = useState<ScannerStatus>("idle");
+  const [isScannerHealthy, setIsScannerHealthy] = useState(false);
   const [message, setMessage] = useState("");
   const [pendingItems, setPendingItems] = useState<PendingItem[]>([]);
   const [recipientName, setRecipientName] = useState("");
@@ -388,6 +390,7 @@ export function ScanClient({
               },
             },
         async (decodedText) => {
+          decodeLoopTickRef.current = Date.now();
           if (decodeLockedRef.current) {
             return;
           }
@@ -429,11 +432,16 @@ export function ScanClient({
             void runOcr(frozenFrame);
           }
         },
-        () => {},
+        () => {
+          decodeLoopTickRef.current = Date.now();
+        },
       );
 
+      decodeLoopTickRef.current = Date.now();
+      setIsScannerHealthy(true);
       setStatus("scanning");
     } catch (error) {
+      setIsScannerHealthy(false);
       setStatus("error");
       setMessage(
         error instanceof Error
@@ -458,6 +466,45 @@ export function ScanClient({
       void stopScanner();
     };
   }, [startScanner, stopScanner]);
+
+  useEffect(() => {
+    const checkScannerHealth = () => {
+      if (status !== "scanning") {
+        setIsScannerHealthy(false);
+        return;
+      }
+
+      const video = document.querySelector<HTMLVideoElement>(
+        `#${readerId} video`,
+      );
+      const hasLiveTrack =
+        video?.srcObject instanceof MediaStream
+          ? video.srcObject
+              .getVideoTracks()
+              .some((track) => track.readyState === "live" && track.enabled)
+          : false;
+      const hasVideoFrame = Boolean(
+        video &&
+          video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
+          video.videoWidth > 0 &&
+          video.videoHeight > 0,
+      );
+      const decodeLoopActive =
+        Date.now() - decodeLoopTickRef.current < 2500;
+
+      setIsScannerHealthy(
+        Boolean(scannerRef.current?.isScanning) &&
+          hasLiveTrack &&
+          hasVideoFrame &&
+          decodeLoopActive,
+      );
+    };
+
+    checkScannerHealth();
+    const intervalId = window.setInterval(checkScannerHealth, 1000);
+
+    return () => window.clearInterval(intervalId);
+  }, [status]);
 
   async function savePickup() {
     if (isSaving || saveJustSucceeded) {
@@ -520,6 +567,26 @@ export function ScanClient({
     }
 
     void startScanner();
+  }
+
+  async function rescanNow() {
+    if (startingRef.current) {
+      return;
+    }
+
+    setMessage("Restarting scanner.");
+    setIsScannerHealthy(false);
+    decodeLockedRef.current = false;
+    await stopScanner();
+
+    try {
+      await scannerRef.current?.clear();
+    } catch {
+      // Recreating the scanner below is enough if clear is unavailable.
+    }
+
+    scannerRef.current = null;
+    await startScanner();
   }
 
   function removePendingItem(trackingNumber: string) {
@@ -591,30 +658,50 @@ export function ScanClient({
           <div className="pointer-events-none absolute inset-x-5 top-1/2 border-t border-dashed border-manifest-amber/80" />
         </div>
 
-        <div className="mt-3 flex items-center justify-between gap-3 text-sm">
-          <span
-            className={`font-mono uppercase ${
-              status === "error" ? "text-stamp-red" : "text-ledger-ink/75"
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-sm">
+          <div
+            aria-live="polite"
+            className={`inline-flex items-center gap-2 rounded-[6px] border bg-paper-light px-3 py-2 font-mono text-xs font-semibold uppercase ${
+              status === "scanning" && isScannerHealthy
+                ? "border-manifest-green text-manifest-green"
+                : "border-stamp-red text-stamp-red"
             }`}
           >
-            {status === "scanning"
-              ? "Camera active"
-              : status === "starting"
-                ? "Starting camera"
-                : status === "paused"
-                  ? "Barcode captured"
-                  : status === "error"
-                    ? "Camera issue"
-                    : "Idle"}
-          </span>
-          <button
-            className="rounded-[6px] border border-ledger-ink bg-paper-light px-3 py-2 font-semibold text-ledger-ink transition hover:bg-manifest-amber active:translate-y-px active:bg-[#b96f17] active:shadow-inner focus-visible:outline-2 focus-visible:outline-offset-2 disabled:opacity-50"
-            disabled={status === "starting"}
-            onClick={scanNext}
-            type="button"
-          >
-            Scan next
-          </button>
+            <span className="relative flex h-3 w-3">
+              {status === "scanning" && isScannerHealthy ? (
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-manifest-green opacity-70" />
+              ) : null}
+              <span
+                className={`relative inline-flex h-3 w-3 rounded-full ${
+                  status === "scanning" && isScannerHealthy
+                    ? "bg-manifest-green"
+                    : "bg-stamp-red"
+                }`}
+              />
+            </span>
+            {status === "scanning" && isScannerHealthy
+              ? "Scanning..."
+              : "Not scanning"}
+          </div>
+          <div className="flex items-center gap-2">
+            {status === "scanning" ? (
+              <button
+                className="rounded-[6px] border border-ledger-ink bg-paper-light px-3 py-2 font-semibold text-ledger-ink transition hover:bg-manifest-amber active:translate-y-px active:bg-[#b96f17] active:shadow-inner focus-visible:outline-2 focus-visible:outline-offset-2 disabled:opacity-50"
+                onClick={() => void rescanNow()}
+                type="button"
+              >
+                Rescan
+              </button>
+            ) : null}
+            <button
+              className="rounded-[6px] border border-ledger-ink bg-paper-light px-3 py-2 font-semibold text-ledger-ink transition hover:bg-manifest-amber active:translate-y-px active:bg-[#b96f17] active:shadow-inner focus-visible:outline-2 focus-visible:outline-offset-2 disabled:opacity-50"
+              disabled={status === "starting"}
+              onClick={scanNext}
+              type="button"
+            >
+              Scan next
+            </button>
+          </div>
         </div>
 
         {message ? (
