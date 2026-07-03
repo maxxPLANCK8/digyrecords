@@ -11,42 +11,49 @@ export default async function SignupPage({ searchParams }: SignupPageProps) {
   const params = await searchParams;
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-stone-50 px-6 py-12 text-zinc-950">
+    <main className="flex min-h-screen items-center justify-center bg-kraft-paper px-6 py-12 text-ledger-ink">
       <section className="w-full max-w-lg">
-        <Link className="text-sm font-semibold text-emerald-700" href="/">
+        <Link
+          className="font-display text-3xl font-extrabold uppercase leading-none text-manifest-green focus-visible:outline-2 focus-visible:outline-offset-2"
+          href="/"
+        >
           ParcelLog
         </Link>
-        <h1 className="mt-6 text-3xl font-semibold tracking-tight">
+        <h1 className="mt-6 font-display text-5xl font-extrabold uppercase leading-none">
           Create staff account
         </h1>
-        <p className="mt-2 text-sm leading-6 text-zinc-600">
-          Join an existing shop with its org UUID invite code, or create a new
-          org for a new pickup point.
+        <p className="mt-2 text-sm leading-6 text-ledger-ink/70">
+          Join an approved shop with its org UUID invite code.
         </p>
 
         {params.error ? (
-          <p className="mt-6 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+          <p className="mt-6 border border-stamp-red bg-paper-light p-3 text-sm text-stamp-red">
             {params.error}
           </p>
         ) : null}
 
-        <form action={signup} className="mt-8 space-y-5">
+        <form
+          action={signup}
+          className="mt-8 border-x-2 border-b-2 border-dashed border-perforation-grey bg-paper-light px-4 pb-5 pt-5 shadow-[0_8px_0_rgba(20,32,43,0.12)]"
+        >
           <label className="block">
-            <span className="text-sm font-medium text-zinc-800">
+            <span className="font-mono text-xs font-medium uppercase text-ledger-ink/70">
               Display name
             </span>
             <input
-              className="mt-2 w-full rounded-md border border-zinc-300 bg-white px-3 py-3 text-base outline-none focus:border-emerald-600"
+              className="mt-1 w-full border-0 border-b border-dashed border-perforation-grey bg-transparent px-0 py-3 text-base text-ledger-ink outline-none focus:border-manifest-amber focus-visible:outline-2 focus-visible:outline-offset-2"
               name="display_name"
               autoComplete="name"
               required
             />
           </label>
 
-          <label className="block">
-            <span className="text-sm font-medium text-zinc-800">Email</span>
+          <label className="mt-4 block">
+            <span className="font-mono text-xs font-medium uppercase text-ledger-ink/70">
+              Email
+            </span>
             <input
-              className="mt-2 w-full rounded-md border border-zinc-300 bg-white px-3 py-3 text-base outline-none focus:border-emerald-600"
+              className="mt-1 w-full border-0 border-b border-dashed border-perforation-grey bg-transparent px-0 py-3 text-base text-ledger-ink outline-none focus:border-manifest-amber focus-visible:outline-2 focus-visible:outline-offset-2"
               name="email"
               type="email"
               autoComplete="email"
@@ -54,10 +61,12 @@ export default async function SignupPage({ searchParams }: SignupPageProps) {
             />
           </label>
 
-          <label className="block">
-            <span className="text-sm font-medium text-zinc-800">Password</span>
+          <label className="mt-4 block">
+            <span className="font-mono text-xs font-medium uppercase text-ledger-ink/70">
+              Password
+            </span>
             <input
-              className="mt-2 w-full rounded-md border border-zinc-300 bg-white px-3 py-3 text-base outline-none focus:border-emerald-600"
+              className="mt-1 w-full border-0 border-b border-dashed border-perforation-grey bg-transparent px-0 py-3 text-base text-ledger-ink outline-none focus:border-manifest-amber focus-visible:outline-2 focus-visible:outline-offset-2"
               name="password"
               type="password"
               autoComplete="new-password"
@@ -66,56 +75,29 @@ export default async function SignupPage({ searchParams }: SignupPageProps) {
             />
           </label>
 
-          <fieldset className="space-y-3 rounded-md border border-zinc-200 bg-white p-4">
-            <legend className="px-1 text-sm font-medium text-zinc-800">
-              Org setup
-            </legend>
-            <label className="flex items-start gap-3 text-sm text-zinc-700">
-              <input
-                className="mt-1"
-                name="org_mode"
-                type="radio"
-                value="join"
-                defaultChecked
-              />
-              Join existing org with invite UUID
-            </label>
-            <label className="flex items-start gap-3 text-sm text-zinc-700">
-              <input className="mt-1" name="org_mode" type="radio" value="create" />
-              Create a new org
-            </label>
-          </fieldset>
-
-          <label className="block">
-            <span className="text-sm font-medium text-zinc-800">
+          <label className="mt-4 block">
+            <span className="font-mono text-xs font-medium uppercase text-ledger-ink/70">
               Org invite code
             </span>
             <input
-              className="mt-2 w-full rounded-md border border-zinc-300 bg-white px-3 py-3 font-mono text-sm outline-none focus:border-emerald-600"
+              className="mt-1 w-full border-0 border-b border-dashed border-perforation-grey bg-transparent px-0 py-3 font-mono text-sm text-ledger-ink outline-none focus:border-manifest-amber focus-visible:outline-2 focus-visible:outline-offset-2"
               name="org_id"
               placeholder="aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+              required
             />
           </label>
 
-          <label className="block">
-            <span className="text-sm font-medium text-zinc-800">
-              New org name
-            </span>
-            <input
-              className="mt-2 w-full rounded-md border border-zinc-300 bg-white px-3 py-3 text-base outline-none focus:border-emerald-600"
-              name="org_name"
-              placeholder="Kilimall Pickup Westlands"
-            />
-          </label>
-
-          <button className="w-full rounded-md bg-emerald-700 px-4 py-3 text-sm font-semibold text-white transition hover:bg-emerald-800">
+          <button className="mt-6 w-full rounded-[6px] bg-manifest-amber px-4 py-3 text-sm font-bold text-ledger-ink transition hover:bg-[#c87d1d] active:translate-y-px active:bg-[#a76312] active:shadow-inner focus-visible:outline-2 focus-visible:outline-offset-2">
             Create account
           </button>
         </form>
 
-        <p className="mt-6 text-sm text-zinc-600">
+        <p className="mt-6 text-sm text-ledger-ink/70">
           Already have an account?{" "}
-          <Link className="font-medium text-emerald-700" href="/login">
+          <Link
+            className="font-medium text-manifest-green underline-offset-4 active:text-manifest-amber focus-visible:outline-2"
+            href="/login"
+          >
             Log in
           </Link>
         </p>

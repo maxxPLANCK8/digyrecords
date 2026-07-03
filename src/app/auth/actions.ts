@@ -29,16 +29,10 @@ export async function signup(formData: FormData) {
   const email = requiredString(formData, "email");
   const password = requiredString(formData, "password");
   const displayName = requiredString(formData, "display_name");
-  const mode = requiredString(formData, "org_mode");
   const orgId = requiredString(formData, "org_id");
-  const orgName = requiredString(formData, "org_name");
 
-  if (mode === "join" && !orgId) {
+  if (!orgId) {
     redirect("/signup?error=Org invite code is required.");
-  }
-
-  if (mode === "create" && !orgName) {
-    redirect("/signup?error=Org name is required to create a new org.");
   }
 
   const { data, error } = await supabase.auth.signUp({
@@ -47,9 +41,8 @@ export async function signup(formData: FormData) {
     options: {
       data: {
         display_name: displayName,
-        org_mode: mode,
-        org_id: mode === "join" ? orgId : undefined,
-        org_name: mode === "create" ? orgName : undefined,
+        org_mode: "join",
+        org_id: orgId,
       },
     },
   });
