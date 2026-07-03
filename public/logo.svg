@@ -1,0 +1,19 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background: ledger ink, full bleed for safe masking on Android/iOS -->
+  <rect width="512" height="512" fill="#14202B"/>
+
+  <!-- Corner-bracket viewfinder mark, amber, centered within safe zone -->
+  <g stroke="#D98E2B" stroke-width="30" stroke-linecap="square" fill="none">
+    <!-- top-left -->
+    <path d="M 146 176 L 146 146 L 176 146"/>
+    <!-- top-right -->
+    <path d="M 336 146 L 366 146 L 366 176"/>
+    <!-- bottom-left -->
+    <path d="M 146 336 L 146 366 L 176 366"/>
+    <!-- bottom-right -->
+    <path d="M 366 336 L 366 366 L 336 366"/>
+  </g>
+
+  <!-- center scan line -->
+  <rect x="196" y="250" width="120" height="12" rx="2" fill="#D98E2B"/>
+</svg>

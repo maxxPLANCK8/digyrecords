@@ -27,6 +27,14 @@ const bigShoulders = Big_Shoulders({
 export const metadata: Metadata = {
   title: "ParcelLog",
   description: "Pickup point parcel scanner and dashboard",
+  manifest: "/manifest.json",
+  icons: {
+    icon: [
+      { url: "/favicon-32.png", sizes: "32x32", type: "image/png" },
+      { url: "/favicon-16.png", sizes: "16x16", type: "image/png" },
+    ],
+    apple: [{ url: "/apple-touch-icon.png" }],
+  },
 };
 
 export default function RootLayout({
