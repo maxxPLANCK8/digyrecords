@@ -22,6 +22,32 @@ function delay(milliseconds: number) {
   return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
 }
 
+function waitForVideoReady(video: HTMLVideoElement, maxAttempts = 10) {
+  return new Promise<boolean>((resolve) => {
+    let attempts = 0;
+    const check = () => {
+      if (
+        video.videoWidth > 0 &&
+        video.videoHeight > 0 &&
+        video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA
+      ) {
+        resolve(true);
+        return;
+      }
+
+      if (attempts >= maxAttempts) {
+        resolve(false);
+        return;
+      }
+
+      attempts += 1;
+      window.setTimeout(check, 50);
+    };
+
+    check();
+  });
+}
+
 function isIOSBrowser() {
   return (
     typeof navigator !== "undefined" &&
@@ -54,7 +80,7 @@ function prepareFrameForOcr(sourceCanvas: HTMLCanvasElement) {
   return ocrCanvas;
 }
 
-function captureCurrentVideoFrame() {
+async function captureCurrentVideoFrame() {
   const video = document.querySelector<HTMLVideoElement>(`#${readerId} video`);
   console.info("[ParcelLog OCR] capture video frame", {
     hasVideo: Boolean(video),
@@ -73,7 +99,20 @@ function captureCurrentVideoFrame() {
         : [],
   });
 
-  if (!video?.videoWidth || !video.videoHeight) {
+  if (!video) {
+    console.info("[ParcelLog OCR] capture failed: no video element");
+    return null;
+  }
+
+  const videoReady = await waitForVideoReady(video);
+  console.info("[ParcelLog OCR] video ready check", {
+    videoReady,
+    readyState: video.readyState,
+    videoWidth: video.videoWidth,
+    videoHeight: video.videoHeight,
+  });
+
+  if (!videoReady || !video.videoWidth || !video.videoHeight) {
     console.info("[ParcelLog OCR] capture failed: video frame not ready");
     return null;
   }
@@ -94,6 +133,18 @@ function captureCurrentVideoFrame() {
   });
 
   return canvas;
+}
+
+function canvasToDebugImage(sourceCanvas: HTMLCanvasElement | null) {
+  if (!sourceCanvas) {
+    return "";
+  }
+
+  try {
+    return sourceCanvas.toDataURL("image/jpeg", 0.72);
+  } catch {
+    return "";
+  }
 }
 
 function normalizePhone(rawPhone: string) {
@@ -181,6 +232,7 @@ export function ScanClient({
   const [isSaving, setIsSaving] = useState(false);
   const [saveJustSucceeded, setSaveJustSucceeded] = useState(false);
   const [receivedStamp, setReceivedStamp] = useState(false);
+  const [ocrDebugImage, setOcrDebugImage] = useState("");
   const stampTimeoutRef = useRef<number | null>(null);
 
   const runOcr = useCallback(
@@ -283,6 +335,7 @@ export function ScanClient({
     setOcrNote("");
     setOcrNamePendingVerify(false);
     setOcrPhonePendingVerify(false);
+    setOcrDebugImage("");
 
     try {
       const { Html5Qrcode, Html5QrcodeSupportedFormats } = await import(
@@ -344,7 +397,8 @@ export function ScanClient({
           }
 
           decodeLockedRef.current = true;
-          const frozenFrame = captureCurrentVideoFrame();
+          const frozenFrame = await captureCurrentVideoFrame();
+          setOcrDebugImage(canvasToDebugImage(frozenFrame));
           console.info("[ParcelLog OCR] decode success, frame ready", {
             decodedValue,
             hasFrame: Boolean(frozenFrame),
@@ -461,6 +515,7 @@ export function ScanClient({
     setOcrNote("");
     setOcrNamePendingVerify(false);
     setOcrPhonePendingVerify(false);
+    setOcrDebugImage("");
     setDuplicateWarning("");
     setSaveJustSucceeded(false);
     decodeLockedRef.current = false;
@@ -486,6 +541,7 @@ export function ScanClient({
     setOcrNote("");
     setOcrNamePendingVerify(false);
     setOcrPhonePendingVerify(false);
+    setOcrDebugImage("");
     setDuplicateWarning("");
     decodeLockedRef.current = false;
 
@@ -608,6 +664,20 @@ export function ScanClient({
           >
             {ocrNote}
           </p>
+        ) : null}
+
+        {ocrDebugImage ? (
+          <div className="mt-3 border border-dashed border-perforation-grey bg-paper-light p-3">
+            <p className="font-mono text-xs font-medium uppercase text-ledger-ink/70">
+              OCR frame
+            </p>
+            {/* eslint-disable-next-line @next/next/no-img-element -- Debug data URL, not a network image. */}
+            <img
+              alt="Captured frame sent to OCR"
+              className="mt-2 h-auto w-[150px] border border-perforation-grey"
+              src={ocrDebugImage}
+            />
+          </div>
         ) : null}
 
         <form
