@@ -1,6 +1,8 @@
 import { redirect } from "next/navigation";
 import { logout } from "@/app/auth/actions";
+import { DownloadPdfButton } from "@/app/dashboard/download-pdf-button";
 import { createClient } from "@/lib/supabase/server";
+import { formatPickupTimestamp } from "@/lib/format";
 
 type Membership = {
   display_name?: string | null;
@@ -42,11 +44,6 @@ export default async function DashboardPage() {
     typedMemberships?.map(orgNameFor).filter(Boolean).join(", ") ||
     "No org linked";
   const displayName = typedMemberships?.[0]?.display_name || user.email;
-  const todayDate = new Date().toLocaleDateString();
-  const todayPickupCount =
-    pickups?.filter(
-      (pickup) => new Date(pickup.scanned_at).toLocaleDateString() === todayDate,
-    ).length ?? 0;
 
   return (
     <main className="min-h-screen bg-kraft-paper px-5 py-6 text-ledger-ink sm:px-8">
@@ -64,13 +61,22 @@ export default async function DashboardPage() {
             <span className="text-ledger-ink/75">{displayName}</span>
             <span className="text-perforation-grey">/</span>
             <a
-              className="rounded-[6px] border border-ledger-ink px-3 py-2 font-semibold text-ledger-ink transition hover:bg-ledger-ink hover:text-kraft-paper focus-visible:outline-2 focus-visible:outline-offset-2"
+              className="rounded-[6px] border border-ledger-ink px-3 py-2 font-semibold text-ledger-ink transition hover:bg-ledger-ink hover:text-kraft-paper active:translate-y-px active:bg-manifest-amber active:text-ledger-ink active:shadow-inner focus-visible:outline-2 focus-visible:outline-offset-2"
               href="/scan"
             >
               Scan
             </a>
+            <DownloadPdfButton
+              orgName={orgNames}
+              pickups={(pickups || []).map((pickup) => ({
+                tracking_number: pickup.tracking_number,
+                recipient_name: pickup.recipient_name,
+                recipient_phone: pickup.recipient_phone,
+                scanned_at: pickup.scanned_at,
+              }))}
+            />
             <form action={logout}>
-              <button className="rounded-[6px] border border-ledger-ink px-3 py-2 font-semibold text-ledger-ink transition hover:bg-ledger-ink hover:text-kraft-paper focus-visible:outline-2 focus-visible:outline-offset-2">
+              <button className="rounded-[6px] border border-ledger-ink px-3 py-2 font-semibold text-ledger-ink transition hover:bg-ledger-ink hover:text-kraft-paper active:translate-y-px active:bg-stamp-red active:text-kraft-paper active:shadow-inner focus-visible:outline-2 focus-visible:outline-offset-2">
                 Log out
               </button>
             </form>
@@ -80,12 +86,12 @@ export default async function DashboardPage() {
         <div className="mt-8 flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
           <div className="-rotate-1 border-2 border-manifest-green bg-paper-light px-6 py-5 text-manifest-green shadow-[6px_6px_0_rgba(63,107,78,0.16)]">
             <p className="font-display text-2xl font-extrabold uppercase leading-none">
-              Today
+              Records
             </p>
             <p className="mt-2 font-display text-6xl font-extrabold leading-none">
-              {todayPickupCount}
+              {pickups?.length ?? 0}
             </p>
-            <p className="mt-1 text-sm font-semibold">pickups</p>
+            <p className="mt-1 text-sm font-semibold">visible pickups</p>
           </div>
           <div className="max-w-xl border-t border-dashed border-perforation-grey pt-4 text-sm text-ledger-ink/70 sm:text-right">
             <p>
@@ -139,12 +145,7 @@ export default async function DashboardPage() {
                     {pickup.recipient_phone || "-"}
                   </td>
                   <td className="px-5 py-4 font-mono text-ledger-ink/75">
-                    {new Date(pickup.scanned_at).toLocaleString(undefined, {
-                      month: "numeric",
-                      day: "numeric",
-                      hour: "numeric",
-                      minute: "2-digit",
-                    })}
+                    {formatPickupTimestamp(pickup.scanned_at)}
                   </td>
                   <td className="py-4 pl-5">
                     <span className="font-display text-xl font-extrabold uppercase text-manifest-green">

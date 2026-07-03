@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/browser";
+import { formatPickupTimestamp } from "@/lib/format";
 
 type ScanClientProps = {
   displayName: string;
@@ -16,6 +17,10 @@ type ScannerStatus = "idle" | "starting" | "scanning" | "paused" | "error";
 type OcrStatus = "idle" | "running" | "done" | "failed";
 
 const readerId = "parcel-scanner-reader";
+
+function delay(milliseconds: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+}
 
 function prepareFrameForOcr(sourceCanvas: HTMLCanvasElement) {
   const ocrCanvas = document.createElement("canvas");
@@ -181,6 +186,7 @@ export function ScanClient({
   const [ocrPhonePendingVerify, setOcrPhonePendingVerify] = useState(false);
   const [duplicateWarning, setDuplicateWarning] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+  const [saveJustSucceeded, setSaveJustSucceeded] = useState(false);
   const [receivedStamp, setReceivedStamp] = useState(false);
   const stampTimeoutRef = useRef<number | null>(null);
 
@@ -396,7 +402,7 @@ export function ScanClient({
 
     if (data?.[0]) {
       setDuplicateWarning(
-        `Already logged at ${new Date(data[0].scanned_at).toLocaleString()}. You can confirm again if this is intentional.`,
+        `Already logged at ${formatPickupTimestamp(data[0].scanned_at)}. You can confirm again if this is intentional.`,
       );
     } else {
       setDuplicateWarning("");
@@ -404,6 +410,10 @@ export function ScanClient({
   }
 
   async function savePickup() {
+    if (isSaving || saveJustSucceeded) {
+      return;
+    }
+
     const nextTrackingNumber = trackingNumber.trim();
     if (!nextTrackingNumber) {
       setMessage("Tracking number is required.");
@@ -431,6 +441,7 @@ export function ScanClient({
     }
 
     setMessage("Saved. Ready for the next parcel.");
+    setSaveJustSucceeded(true);
     setReceivedStamp(true);
     if (stampTimeoutRef.current) {
       window.clearTimeout(stampTimeoutRef.current);
@@ -438,6 +449,7 @@ export function ScanClient({
     stampTimeoutRef.current = window.setTimeout(() => {
       setReceivedStamp(false);
     }, 900);
+    await delay(450);
     setTrackingNumber("");
     setRawPayload("");
     setRecipientName("");
@@ -449,6 +461,7 @@ export function ScanClient({
     setOcrNamePendingVerify(false);
     setOcrPhonePendingVerify(false);
     setDuplicateWarning("");
+    setSaveJustSucceeded(false);
     decodeLockedRef.current = false;
     if (scannerRef.current?.isScanning) {
       setStatus("scanning");
@@ -460,6 +473,7 @@ export function ScanClient({
 
   function scanNext() {
     setMessage("Ready for the next parcel.");
+    setSaveJustSucceeded(false);
     setReceivedStamp(false);
     setTrackingNumber("");
     setRawPayload("");
@@ -520,7 +534,7 @@ export function ScanClient({
               </p>
             </div>
             <Link
-              className="rounded-[6px] border border-ledger-ink px-3 py-2 text-sm font-semibold text-ledger-ink transition hover:bg-ledger-ink hover:text-kraft-paper focus-visible:outline-2 focus-visible:outline-offset-2"
+              className="rounded-[6px] border border-ledger-ink px-3 py-2 text-sm font-semibold text-ledger-ink transition hover:bg-ledger-ink hover:text-kraft-paper active:translate-y-px active:bg-manifest-amber active:text-ledger-ink active:shadow-inner focus-visible:outline-2 focus-visible:outline-offset-2"
               href="/dashboard"
             >
               Dashboard
@@ -554,7 +568,7 @@ export function ScanClient({
                     : "Idle"}
           </span>
           <button
-            className="rounded-[6px] border border-ledger-ink bg-paper-light px-3 py-2 font-semibold text-ledger-ink transition hover:bg-manifest-amber focus-visible:outline-2 focus-visible:outline-offset-2 disabled:opacity-50"
+            className="rounded-[6px] border border-ledger-ink bg-paper-light px-3 py-2 font-semibold text-ledger-ink transition hover:bg-manifest-amber active:translate-y-px active:bg-[#b96f17] active:shadow-inner focus-visible:outline-2 focus-visible:outline-offset-2 disabled:opacity-50"
             disabled={status === "starting"}
             onClick={scanNext}
             type="button"
@@ -596,7 +610,7 @@ export function ScanClient({
         ) : null}
 
         <form
-          className="relative mt-4 border-x-2 border-b-2 border-dashed border-perforation-grey bg-paper-light px-4 pb-5 pt-6 shadow-[0_8px_0_rgba(20,32,43,0.12)] before:absolute before:inset-x-0 before:top-0 before:border-t-2 before:border-dashed before:border-ledger-ink"
+          className="relative mt-4 border-x-2 border-b-2 border-dashed border-perforation-grey bg-paper-light px-4 pb-4 pt-5 shadow-[0_8px_0_rgba(20,32,43,0.12)] before:absolute before:inset-x-0 before:top-0 before:border-t-2 before:border-dashed before:border-ledger-ink"
           onSubmit={(event) => {
             event.preventDefault();
             void savePickup();
@@ -608,13 +622,13 @@ export function ScanClient({
             </div>
           ) : null}
 
-          <div className="space-y-4">
+          <div className="space-y-2.5">
             <label className="block">
               <span className="font-mono text-xs font-medium uppercase text-ledger-ink/70">
                 Tracking no.
               </span>
               <input
-                className="mt-1 w-full border-0 border-b border-dashed border-perforation-grey bg-transparent px-0 py-3 font-mono text-lg font-medium text-ledger-ink outline-none focus:border-manifest-amber focus-visible:outline-2 focus-visible:outline-offset-2"
+                className="mt-0.5 w-full border-0 border-b border-dashed border-perforation-grey bg-transparent px-0 py-2 font-mono text-lg font-medium text-ledger-ink outline-none focus:border-manifest-amber focus-visible:outline-2 focus-visible:outline-offset-2"
                 inputMode="text"
                 onBlur={() => void checkDuplicate(trackingNumber.trim())}
                 onChange={(event) => {
@@ -638,7 +652,7 @@ export function ScanClient({
                 ) : null}
               </span>
               <input
-                className={`mt-1 w-full border-0 border-b border-dashed bg-transparent px-0 py-3 text-lg text-ledger-ink outline-none focus:border-manifest-amber focus-visible:outline-2 focus-visible:outline-offset-2 ${
+                className={`mt-0.5 w-full border-0 border-b border-dashed bg-transparent px-0 py-2 text-lg text-ledger-ink outline-none focus:border-manifest-amber focus-visible:outline-2 focus-visible:outline-offset-2 ${
                   ocrNamePendingVerify
                     ? "border-manifest-green"
                     : "border-perforation-grey"
@@ -664,7 +678,7 @@ export function ScanClient({
                 ) : null}
               </span>
               <input
-                className={`mt-1 w-full border-0 border-b border-dashed bg-transparent px-0 py-3 font-mono text-lg text-ledger-ink outline-none focus:border-manifest-amber focus-visible:outline-2 focus-visible:outline-offset-2 ${
+                className={`mt-0.5 w-full border-0 border-b border-dashed bg-transparent px-0 py-2 font-mono text-lg text-ledger-ink outline-none focus:border-manifest-amber focus-visible:outline-2 focus-visible:outline-offset-2 ${
                   ocrPhonePendingVerify
                     ? "border-manifest-green"
                     : "border-perforation-grey"
@@ -681,11 +695,15 @@ export function ScanClient({
           </div>
 
           <button
-            className="mt-5 w-full rounded-[6px] bg-manifest-amber px-4 py-4 text-base font-bold text-ledger-ink transition hover:bg-[#c87d1d] focus-visible:outline-2 focus-visible:outline-offset-2 disabled:opacity-60"
-            disabled={isSaving}
+            className="mt-4 w-full rounded-[6px] bg-manifest-amber px-4 py-4 text-base font-bold text-ledger-ink transition hover:bg-[#c87d1d] active:translate-y-px active:bg-[#a76312] active:shadow-inner focus-visible:outline-2 focus-visible:outline-offset-2 disabled:opacity-70"
+            disabled={isSaving || saveJustSucceeded}
             type="submit"
           >
-            {isSaving ? "Saving..." : "Confirm Pickup"}
+            {isSaving
+              ? "Saving..."
+              : saveJustSucceeded
+                ? "Received"
+                : "Confirm Pickup"}
           </button>
         </form>
       </section>
