@@ -22,6 +22,33 @@ function delay(milliseconds: number) {
   return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
 }
 
+function isIOSBrowser() {
+  return (
+    typeof navigator !== "undefined" &&
+    /iPad|iPhone|iPod/.test(navigator.userAgent)
+  );
+}
+
+function captureScannerCanvasFrame() {
+  const scannerCanvas = document.querySelector<HTMLCanvasElement>(
+    `#${readerId} canvas`,
+  );
+  if (!scannerCanvas?.width || !scannerCanvas.height) {
+    return null;
+  }
+
+  const fallbackCanvas = document.createElement("canvas");
+  fallbackCanvas.width = scannerCanvas.width;
+  fallbackCanvas.height = scannerCanvas.height;
+  fallbackCanvas.getContext("2d")?.drawImage(scannerCanvas, 0, 0);
+  console.info("[ParcelLog OCR] captured scanner canvas frame", {
+    width: fallbackCanvas.width,
+    height: fallbackCanvas.height,
+  });
+
+  return fallbackCanvas;
+}
+
 function prepareFrameForOcr(sourceCanvas: HTMLCanvasElement) {
   const ocrCanvas = document.createElement("canvas");
   const sourceWidth = sourceCanvas.width;
@@ -47,6 +74,13 @@ function prepareFrameForOcr(sourceCanvas: HTMLCanvasElement) {
 }
 
 function captureCurrentVideoFrame() {
+  if (isIOSBrowser()) {
+    const scannerFrame = captureScannerCanvasFrame();
+    if (scannerFrame) {
+      return scannerFrame;
+    }
+  }
+
   const video = document.querySelector<HTMLVideoElement>(`#${readerId} video`);
   console.info("[ParcelLog OCR] capture before stop", {
     hasVideo: Boolean(video),
@@ -66,23 +100,13 @@ function captureCurrentVideoFrame() {
   });
 
   if (!video?.videoWidth || !video.videoHeight) {
-    const scannerCanvas = document.querySelector<HTMLCanvasElement>(
-      `#${readerId} canvas`,
-    );
-    if (!scannerCanvas?.width || !scannerCanvas.height) {
+    const scannerFrame = captureScannerCanvasFrame();
+    if (!scannerFrame) {
       console.info("[ParcelLog OCR] capture failed: no video or canvas frame");
       return null;
     }
 
-    const fallbackCanvas = document.createElement("canvas");
-    fallbackCanvas.width = scannerCanvas.width;
-    fallbackCanvas.height = scannerCanvas.height;
-    fallbackCanvas.getContext("2d")?.drawImage(scannerCanvas, 0, 0);
-    console.info("[ParcelLog OCR] captured scanner canvas fallback", {
-      width: fallbackCanvas.width,
-      height: fallbackCanvas.height,
-    });
-    return fallbackCanvas;
+    return scannerFrame;
   }
 
   const canvas = document.createElement("canvas");
@@ -319,19 +343,27 @@ export function ScanClient({
 
       await scannerRef.current.start(
         { facingMode: "environment" },
-        {
-          fps: 12,
-          qrbox: (viewfinderWidth, viewfinderHeight) => ({
-            width: Math.floor(Math.min(viewfinderWidth * 0.94, 560)),
-            height: Math.floor(Math.min(viewfinderHeight * 0.82, 760)),
-          }),
-          aspectRatio: 0.75,
-          videoConstraints: {
-            facingMode: { ideal: "environment" },
-            width: { ideal: 1280 },
-            height: { ideal: 1920 },
-          },
-        },
+        isIOSBrowser()
+          ? {
+              fps: 10,
+              qrbox: (viewfinderWidth, viewfinderHeight) => ({
+                width: Math.floor(Math.min(viewfinderWidth * 0.94, 560)),
+                height: Math.floor(Math.min(viewfinderHeight * 0.82, 760)),
+              }),
+            }
+          : {
+              fps: 12,
+              qrbox: (viewfinderWidth, viewfinderHeight) => ({
+                width: Math.floor(Math.min(viewfinderWidth * 0.94, 560)),
+                height: Math.floor(Math.min(viewfinderHeight * 0.82, 760)),
+              }),
+              aspectRatio: 0.75,
+              videoConstraints: {
+                facingMode: { ideal: "environment" },
+                width: { ideal: 1280 },
+                height: { ideal: 1920 },
+              },
+            },
         async (decodedText) => {
           if (decodeLockedRef.current) {
             return;
