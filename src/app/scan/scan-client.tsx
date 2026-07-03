@@ -17,42 +17,28 @@ type OcrStatus = "idle" | "running" | "done" | "failed";
 
 const readerId = "parcel-scanner-reader";
 
-function cropToRecipientBand(sourceCanvas: HTMLCanvasElement) {
-  const cropCanvas = document.createElement("canvas");
+function prepareFrameForOcr(sourceCanvas: HTMLCanvasElement) {
+  const ocrCanvas = document.createElement("canvas");
   const sourceWidth = sourceCanvas.width;
   const sourceHeight = sourceCanvas.height;
-  const scale = 2.5;
-  const cropX = Math.floor(sourceWidth * 0.06);
-  const cropY = Math.floor(sourceHeight * 0.25);
-  const cropWidth = Math.floor(sourceWidth * 0.88);
-  const cropHeight = Math.floor(sourceHeight * 0.28);
+  const scale = Math.min(Math.max(1800 / sourceWidth, 1.4), 2.2);
 
-  cropCanvas.width = Math.floor(cropWidth * scale);
-  cropCanvas.height = Math.floor(cropHeight * scale);
+  ocrCanvas.width = Math.floor(sourceWidth * scale);
+  ocrCanvas.height = Math.floor(sourceHeight * scale);
 
-  const cropContext = cropCanvas.getContext("2d");
-  if (!cropContext) {
+  const context = ocrCanvas.getContext("2d");
+  if (!context) {
     return null;
   }
 
-  cropContext.imageSmoothingEnabled = true;
-  cropContext.imageSmoothingQuality = "high";
-  cropContext.filter = "grayscale(1) contrast(1.6)";
-  cropContext.fillStyle = "white";
-  cropContext.fillRect(0, 0, cropCanvas.width, cropCanvas.height);
-  cropContext.drawImage(
-    sourceCanvas,
-    cropX,
-    cropY,
-    cropWidth,
-    cropHeight,
-    0,
-    0,
-    cropCanvas.width,
-    cropCanvas.height,
-  );
+  context.imageSmoothingEnabled = true;
+  context.imageSmoothingQuality = "high";
+  context.filter = "grayscale(1) contrast(1.45)";
+  context.fillStyle = "white";
+  context.fillRect(0, 0, ocrCanvas.width, ocrCanvas.height);
+  context.drawImage(sourceCanvas, 0, 0, ocrCanvas.width, ocrCanvas.height);
 
-  return cropCanvas;
+  return ocrCanvas;
 }
 
 function captureCurrentVideoFrame() {
@@ -116,28 +102,56 @@ function normalizePhone(rawPhone: string) {
   return rawPhone.replace(/[^\d+]/g, "").replace(/^\+/, "");
 }
 
-function parseRecipientOcr(rawText: string) {
-  const singleLineText = rawText
-    .replace(/\s+/g, " ")
+function normalizeOcrLine(line: string) {
+  return line
     .replace(/[|]/g, " ")
+    .replace(/\s+/g, " ")
     .trim();
-  const phoneMatch = singleLineText.match(
-    /(?:\+?254[\s-]?\d[\d\s-]{7,11}|0\d[\d\s-]{7,10})/,
+}
+
+function findRecipientLine(lines: string[]) {
+  return lines
+    .map(normalizeOcrLine)
+    .find((line) => /(?:^|\b)(?:to|t0|tot)\s*[:：]?\s+/i.test(line));
+}
+
+function parseRecipientOcr(rawText: string) {
+  const lines = rawText.split(/\r?\n/);
+  const recipientLine = findRecipientLine(lines);
+
+  if (!recipientLine) {
+    console.info("[ParcelLog OCR] no recipient line found", { lines });
+    return { name: "", phone: "" };
+  }
+
+  const lineWithoutPrefix = recipientLine
+    .replace(/^(.*?\b(?:to|t0|tot)\s*[:：]?\s*)/i, "")
+    .trim();
+  const phoneMatch = lineWithoutPrefix.match(
+    /(?:\+?254[\s-]?\d[\d\s-]{7,11}|0\d[\d\s-]{7,10}|\d[\d\s-]{8,9})/,
   );
 
   if (!phoneMatch) {
+    console.info("[ParcelLog OCR] recipient line had no phone", {
+      recipientLine,
+      lineWithoutPrefix,
+    });
     return { name: "", phone: "" };
   }
 
   const phone = normalizePhone(phoneMatch[0]);
-  const beforePhone = singleLineText.slice(0, phoneMatch.index).trim();
-  const toMatch = beforePhone.match(/(?:^|\b)to\s*:?\s*(.+)$/i);
-  const name = (toMatch?.[1] ?? beforePhone)
-    .replace(/^[:\-\s]+/, "")
-    .replace(/\b(to|tel|phone|mobile)\b/gi, "")
+  const name = lineWithoutPrefix
+    .replace(phoneMatch[0], " ")
+    .replace(/\b(to|t0|tot|tel|phone|mobile)\b/gi, "")
     .replace(/[^a-zA-Z\s.'-]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+
+  console.info("[ParcelLog OCR] parsed recipient line", {
+    recipientLine,
+    name,
+    phone,
+  });
 
   return { name, phone };
 }
@@ -175,28 +189,36 @@ export function ScanClient({
         return;
       }
 
-      const cropCanvas = cropToRecipientBand(sourceCanvas);
-      if (!cropCanvas) {
+      const ocrCanvas = prepareFrameForOcr(sourceCanvas);
+      if (!ocrCanvas) {
         setOcrStatus("failed");
-        setOcrNote("OCR could not crop the recipient line.");
+        setOcrNote("OCR could not prepare the frozen frame.");
         return;
       }
 
       setOcrStatus("running");
-      setOcrNote("Reading recipient line...");
+      setOcrNote("Reading label text...");
 
       try {
         const { recognize } = await import("tesseract.js");
         const {
           data: { text },
-        } = await recognize(cropCanvas, "eng", {
+        } = await recognize(ocrCanvas, "eng", {
           logger: () => {},
+          // Tesseract supports this runtime parameter, but the convenience
+          // wrapper types only expose WorkerOptions.
+          tessedit_pageseg_mode: "6",
+        } as Parameters<typeof recognize>[2] & {
+          tessedit_pageseg_mode: string;
         });
+        console.info("[ParcelLog OCR] raw text", text);
         const parsed = parseRecipientOcr(text);
 
         if (!parsed.phone) {
           setOcrStatus("failed");
-          setOcrNote("OCR did not find a phone number. Type details manually.");
+          setOcrNote(
+            "OCR did not find a phone on the To line. Type details manually.",
+          );
           return;
         }
 
